@@ -42,6 +42,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "rtabmap/core/RegistrationVis.h"
 #include "rtabmap/core/OccupancyGrid.h"
 #include "rtabmap/core/GainCompensator.h"
+#include "rtabmap/core/Recovery.h"
 
 #include "rtabmap/gui/ImageView.h"
 #include "rtabmap/gui/KeypointItem.h"
@@ -52,6 +53,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "rtabmap/gui/ProgressDialog.h"
 #include "rtabmap/gui/CloudViewer.h"
 #include "rtabmap/gui/LoopClosureViewer.h"
+#include "rtabmap/gui/ExportCloudsDialog.h"
+#include "rtabmap/gui/ExportBundlerDialog.h"
+#include "rtabmap/gui/AboutDialog.h"
+#include "rtabmap/gui/PostProcessingDialog.h"
+#include "rtabmap/gui/DepthCalibrationDialog.h"
+#include "rtabmap/gui/RecoveryState.h"
 
 #include <rtabmap/utilite/UStl.h>
 #include <rtabmap/utilite/ULogger.h>
@@ -60,12 +67,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <rtabmap/utilite/UConversion.h>
 #include "rtabmap/utilite/UPlot.h"
 #include "rtabmap/utilite/UCv2Qt.h"
-
-#include "ExportCloudsDialog.h"
-#include "ExportBundlerDialog.h"
-#include "AboutDialog.h"
-#include "PostProcessingDialog.h"
-#include "DepthCalibrationDialog.h"
 
 #include <QtGui/QCloseEvent>
 #include <QtGui/QPixmap>
@@ -128,7 +129,7 @@ inline static void initGuiResource() { Q_INIT_RESOURCE(GuiLib); }
 
 namespace rtabmap {
 
-MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
+MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent, bool showSplashScreen) :
 	QMainWindow(parent),
 	_ui(0),
 	_state(kIdle),
@@ -143,6 +144,7 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	_firstStamp(0.0f),
 	_processingStatistics(false),
 	_processingDownloadedMap(false),
+	_recovering(false),
 	_odometryReceived(false),
 	_newDatabasePath(""),
 	_newDatabasePathOutput(""),
@@ -166,6 +168,7 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	_exportPosesFrame(0),
 	_autoScreenCaptureOdomSync(false),
 	_autoScreenCaptureRAM(false),
+	_autoScreenCapturePNG(false),
 	_firstCall(true),
 	_progressCanceled(false)
 {
@@ -174,11 +177,15 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 
 	initGuiResource();
 
-	QPixmap pixmap(":images/RTAB-Map.png");
-	QSplashScreen splash(pixmap);
-	splash.show();
-	splash.showMessage(tr("Loading..."));
-	QApplication::processEvents();
+	QSplashScreen * splash = 0;
+	if (showSplashScreen)
+	{
+		QPixmap pixmap(":images/RTAB-Map.png");
+		splash = new QSplashScreen(pixmap);
+		splash->show();
+		splash->showMessage(tr("Loading..."));
+		QApplication::processEvents();
+	}
 
 	// Create dialogs
 	_aboutDialog = new AboutDialog(this);
@@ -262,9 +269,9 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	_logEventTime->start();
 
 	//Graphics scenes
-	_ui->imageView_source->setBackgroundColor(Qt::black);
-	_ui->imageView_loopClosure->setBackgroundColor(Qt::black);
-	_ui->imageView_odometry->setBackgroundColor(Qt::black);
+	_ui->imageView_source->setBackgroundColor(_ui->imageView_source->getDefaultBackgroundColor());
+	_ui->imageView_loopClosure->setBackgroundColor(_ui->imageView_loopClosure->getDefaultBackgroundColor());
+	_ui->imageView_odometry->setBackgroundColor(_ui->imageView_odometry->getDefaultBackgroundColor());
 	_ui->imageView_odometry->setAlpha(200);
 	_preferencesDialog->loadWidgetState(_ui->imageView_source);
 	_preferencesDialog->loadWidgetState(_ui->imageView_loopClosure);
@@ -287,9 +294,9 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	_ui->rawLikelihoodPlot->addCurve(_rawLikelihoodCurve, false);
 	_ui->rawLikelihoodPlot->showLegend(false);
 
-	_initProgressDialog = new ProgressDialog(this);
-	_initProgressDialog->setMinimumWidth(800);
-	connect(_initProgressDialog, SIGNAL(canceled()), this, SLOT(cancelProgress()));
+	_progressDialog = new ProgressDialog(this);
+	_progressDialog->setMinimumWidth(800);
+	connect(_progressDialog, SIGNAL(canceled()), this, SLOT(cancelProgress()));
 
 	connect(_ui->widget_mapVisibility, SIGNAL(visibilityChanged(int, bool)), this, SLOT(updateNodeVisibility(int, bool)));
 
@@ -323,7 +330,7 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	_ui->toolBar_2->setWindowTitle(tr("Control toolbar"));
 	QAction * a = _ui->menuShow_view->addAction("Progress dialog");
 	a->setCheckable(false);
-	connect(a, SIGNAL(triggered(bool)), _initProgressDialog, SLOT(show()));
+	connect(a, SIGNAL(triggered(bool)), _progressDialog, SLOT(show()));
 	QAction * statusBarAction = _ui->menuShow_view->addAction("Status bar");
 	statusBarAction->setCheckable(true);
 	statusBarAction->setChecked(statusBarShown);
@@ -418,6 +425,7 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	connect(_ui->actionOpenNI2_kinect, SIGNAL(triggered()), this, SLOT(selectOpenni2()));
 	connect(_ui->actionOpenNI2_sense, SIGNAL(triggered()), this, SLOT(selectOpenni2()));
 	connect(_ui->actionFreenect2, SIGNAL(triggered()), this, SLOT(selectFreenect2()));
+	connect(_ui->actionKinect_for_Windows_SDK_v2, SIGNAL(triggered()), this, SLOT(selectK4W2()));
 	connect(_ui->actionRealSense_R200, SIGNAL(triggered()), this, SLOT(selectRealSense()));
 	connect(_ui->actionRealSense_ZR300, SIGNAL(triggered()), this, SLOT(selectRealSense()));
 	connect(_ui->actionStereoDC1394, SIGNAL(triggered()), this, SLOT(selectStereoDC1394()));
@@ -431,6 +439,7 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	_ui->actionOpenNI2_kinect->setEnabled(CameraOpenNI2::available());
 	_ui->actionOpenNI2_sense->setEnabled(CameraOpenNI2::available());
 	_ui->actionFreenect2->setEnabled(CameraFreenect2::available());
+	_ui->actionKinect_for_Windows_SDK_v2->setEnabled(CameraK4W2::available());
 	_ui->actionRealSense_R200->setEnabled(CameraRealSense::available());
 	_ui->actionRealSense_ZR300->setEnabled(CameraRealSense::available());
 	_ui->actionStereoDC1394->setEnabled(CameraStereoDC1394::available());
@@ -560,6 +569,9 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	_ui->statsToolBox->updateStat("Odometry/Inliers/", false);
 	_ui->statsToolBox->updateStat("Odometry/InliersRatio/", false);
 	_ui->statsToolBox->updateStat("Odometry/ICPInliersRatio/", false);
+	_ui->statsToolBox->updateStat("Odometry/ICPRotation/rad", false);
+	_ui->statsToolBox->updateStat("Odometry/ICPTranslation/m", false);
+	_ui->statsToolBox->updateStat("Odometry/ICPStructuralComplexity/", false);
 	_ui->statsToolBox->updateStat("Odometry/StdDevLin/", false);
 	_ui->statsToolBox->updateStat("Odometry/StdDevAng/", false);
 	_ui->statsToolBox->updateStat("Odometry/VarianceLin/", false);
@@ -612,7 +624,11 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	_loopClosureViewer->setDecimation(_preferencesDialog->getCloudDecimation(0));
 	_loopClosureViewer->setMaxDepth(_preferencesDialog->getCloudMaxDepth(0));
 
-	splash.close();
+	if (splash)
+	{
+		splash->close();
+		delete splash;
+	}
 
 	this->setFocus();
 
@@ -642,6 +658,30 @@ void MainWindow::setupMainLayout(bool vertical)
 	{
 		qobject_cast<QHBoxLayout *>(_ui->layout_imageview->layout())->setDirection(QBoxLayout::LeftToRight);
 	}
+}
+
+void MainWindow::setCloudViewer(rtabmap::CloudViewer * cloudViewer)
+{ 
+	UASSERT(cloudViewer); 
+	delete _cloudViewer;
+	_cloudViewer = cloudViewer; 
+	_cloudViewer->setParent(_ui->layout_cloudViewer);
+	_cloudViewer->setObjectName("widget_cloudViewer");
+	_ui->layout_cloudViewer->layout()->addWidget(_cloudViewer);
+	
+	_cloudViewer->setBackfaceCulling(true, false);
+	_preferencesDialog->loadWidgetState(_cloudViewer);
+
+	connect(_cloudViewer, SIGNAL(configChanged()), this, SLOT(configGUIModified()));
+}
+void MainWindow::setLoopClosureViewer(rtabmap::LoopClosureViewer * loopClosureViewer)
+{ 
+	UASSERT(loopClosureViewer); 
+	delete _loopClosureViewer; 
+	_loopClosureViewer = loopClosureViewer;
+	_loopClosureViewer->setParent(_ui->layout_loopClosureViewer);
+	_loopClosureViewer->setObjectName("widget_loopClosureViewer");
+	_ui->layout_loopClosureViewer->layout()->addWidget(_loopClosureViewer);
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)
@@ -773,8 +813,11 @@ bool MainWindow::handleEvent(UEvent* anEvent)
 	}
 	else if(anEvent->getClassName().compare("RtabmapEventInit") == 0)
 	{
-		RtabmapEventInit * rtabmapEventInit = (RtabmapEventInit*)anEvent;
-		emit rtabmapEventInitReceived((int)rtabmapEventInit->getStatus(), rtabmapEventInit->getInfo().c_str());
+		if(!_recovering)
+		{
+			RtabmapEventInit * rtabmapEventInit = (RtabmapEventInit*)anEvent;
+			emit rtabmapEventInitReceived((int)rtabmapEventInit->getStatus(), rtabmapEventInit->getInfo().c_str());
+		}
 	}
 	else if(anEvent->getClassName().compare("RtabmapEvent3DMap") == 0)
 	{
@@ -812,7 +855,7 @@ bool MainWindow::handleEvent(UEvent* anEvent)
 			if (_odomThread == 0 && _camera->camera()->odomProvided() && _preferencesDialog->isRGBDMode())
 			{
 				OdometryInfo odomInfo;
-				odomInfo.covariance = cameraEvent->info().odomCovariance;
+				odomInfo.reg.covariance = cameraEvent->info().odomCovariance;
 				if (!_processingOdometry && !_processingStatistics)
 				{
 					_processingOdometry = true; // if we receive too many odometry events!
@@ -886,6 +929,8 @@ void MainWindow::processCameraInfo(const rtabmap::CameraInfo & info)
 	_ui->statsToolBox->updateStat("Camera/Time disparity/ms", _preferencesDialog->isTimeUsedInFigures()?info.stamp-_firstStamp:(float)info.id, info.timeDisparity*1000.0f, _preferencesDialog->isCacheSavedInFigures());
 	_ui->statsToolBox->updateStat("Camera/Time mirroring/ms", _preferencesDialog->isTimeUsedInFigures()?info.stamp-_firstStamp:(float)info.id, info.timeMirroring*1000.0f, _preferencesDialog->isCacheSavedInFigures());
 	_ui->statsToolBox->updateStat("Camera/Time scan from depth/ms", _preferencesDialog->isTimeUsedInFigures()?info.stamp-_firstStamp:(float)info.id, info.timeScanFromDepth*1000.0f, _preferencesDialog->isCacheSavedInFigures());
+
+	emit(cameraInfoProcessed());
 }
 
 void MainWindow::processOdometry(const rtabmap::OdometryEvent & odom, bool dataIgnored)
@@ -927,11 +972,11 @@ void MainWindow::processOdometry(const rtabmap::OdometryEvent & odom, bool dataI
 		pose = _lastOdomPose;
 		lost = true;
 	}
-	else if(odom.info().inliers>0 &&
+	else if(odom.info().reg.inliers>0 &&
 			_preferencesDialog->getOdomQualityWarnThr() &&
-			odom.info().inliers < _preferencesDialog->getOdomQualityWarnThr())
+			odom.info().reg.inliers < _preferencesDialog->getOdomQualityWarnThr())
 	{
-		UDEBUG("odom warn, quality(inliers)=%d thr=%d", odom.info().inliers, _preferencesDialog->getOdomQualityWarnThr());
+		UDEBUG("odom warn, quality(inliers)=%d thr=%d", odom.info().reg.inliers, _preferencesDialog->getOdomQualityWarnThr());
 		lostStateChanged = _cloudViewer->getBackgroundColor() == Qt::darkRed;
 		_cloudViewer->setBackgroundColor(Qt::darkYellow);
 		_ui->imageView_odometry->setBackgroundColor(Qt::darkYellow);
@@ -941,7 +986,7 @@ void MainWindow::processOdometry(const rtabmap::OdometryEvent & odom, bool dataI
 		UDEBUG("odom ok");
 		lostStateChanged = _cloudViewer->getBackgroundColor() == Qt::darkRed;
 		_cloudViewer->setBackgroundColor(_cloudViewer->getDefaultBackgroundColor());
-		_ui->imageView_odometry->setBackgroundColor(Qt::black);
+		_ui->imageView_odometry->setBackgroundColor(_ui->imageView_odometry->getDefaultBackgroundColor());
 	}
 
 	if(!pose.isNull() && (_ui->dockWidget_cloudViewer->isVisible() || _ui->graphicsView_graphView->isVisible()))
@@ -1202,9 +1247,9 @@ void MainWindow::processOdometry(const rtabmap::OdometryEvent & odom, bool dataI
 				if(_preferencesDialog->isOdomOnlyInliersShown())
 				{
 					std::multimap<int, cv::KeyPoint> kpInliers;
-					for(unsigned int i=0; i<odom.info().wordInliers.size(); ++i)
+					for(unsigned int i=0; i<odom.info().reg.inliersIDs.size(); ++i)
 					{
-						kpInliers.insert(*odom.info().words.find(odom.info().wordInliers[i]));
+						kpInliers.insert(*odom.info().words.find(odom.info().reg.inliersIDs[i]));
 					}
 					_ui->imageView_odometry->setFeatures(
 							kpInliers,
@@ -1271,13 +1316,13 @@ void MainWindow::processOdometry(const rtabmap::OdometryEvent & odom, bool dataI
 			{
 				if(_ui->imageView_odometry->isFeaturesShown() && !_preferencesDialog->isOdomOnlyInliersShown())
 				{
-					for(unsigned int i=0; i<odom.info().wordMatches.size(); ++i)
+					for(unsigned int i=0; i<odom.info().reg.matchesIDs.size(); ++i)
 					{
-						_ui->imageView_odometry->setFeatureColor(odom.info().wordMatches[i], Qt::red); // outliers
+						_ui->imageView_odometry->setFeatureColor(odom.info().reg.matchesIDs[i], Qt::red); // outliers
 					}
-					for(unsigned int i=0; i<odom.info().wordInliers.size(); ++i)
+					for(unsigned int i=0; i<odom.info().reg.inliersIDs.size(); ++i)
 					{
-						_ui->imageView_odometry->setFeatureColor(odom.info().wordInliers[i], Qt::green); // inliers
+						_ui->imageView_odometry->setFeatureColor(odom.info().reg.inliersIDs[i], Qt::green); // inliers
 					}
 				}
 			}
@@ -1319,19 +1364,22 @@ void MainWindow::processOdometry(const rtabmap::OdometryEvent & odom, bool dataI
 
 	if(_ui->actionAuto_screen_capture->isChecked() && _autoScreenCaptureOdomSync)
 	{
-		this->captureScreen(_autoScreenCaptureRAM);
+		this->captureScreen(_autoScreenCaptureRAM, _autoScreenCapturePNG);
 	}
 
 	//Process info
-	_ui->statsToolBox->updateStat("Odometry/Inliers/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().inliers, _preferencesDialog->isCacheSavedInFigures());
-	_ui->statsToolBox->updateStat("Odometry/InliersRatio/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), odom.info().features<=0?0.0f:float(odom.info().inliers)/float(odom.info().features), _preferencesDialog->isCacheSavedInFigures());
-	_ui->statsToolBox->updateStat("Odometry/ICPInliersRatio/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().icpInliersRatio, _preferencesDialog->isCacheSavedInFigures());
-	_ui->statsToolBox->updateStat("Odometry/Matches/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().matches, _preferencesDialog->isCacheSavedInFigures());
-	_ui->statsToolBox->updateStat("Odometry/MatchesRatio/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), odom.info().features<=0?0.0f:float(odom.info().matches)/float(odom.info().features), _preferencesDialog->isCacheSavedInFigures());
-	_ui->statsToolBox->updateStat("Odometry/StdDevLin/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), sqrt((float)odom.info().covariance.at<double>(0,0)), _preferencesDialog->isCacheSavedInFigures());
-	_ui->statsToolBox->updateStat("Odometry/VarianceLin/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().covariance.at<double>(0,0), _preferencesDialog->isCacheSavedInFigures());
-	_ui->statsToolBox->updateStat("Odometry/StdDevAng/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), sqrt((float)odom.info().covariance.at<double>(5,5)), _preferencesDialog->isCacheSavedInFigures());
-	_ui->statsToolBox->updateStat("Odometry/VarianceAng/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().covariance.at<double>(5,5), _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/Inliers/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().reg.inliers, _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/InliersRatio/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), odom.info().features<=0?0.0f:float(odom.info().reg.inliers)/float(odom.info().features), _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/ICPInliersRatio/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().reg.icpInliersRatio, _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/ICPRotation/rad", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().reg.icpRotation, _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/ICPTranslation/m", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().reg.icpTranslation, _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/ICPStructuralComplexity/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().reg.icpStructuralComplexity, _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/Matches/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().reg.matches, _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/MatchesRatio/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), odom.info().features<=0?0.0f:float(odom.info().reg.matches)/float(odom.info().features), _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/StdDevLin/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), sqrt((float)odom.info().reg.covariance.at<double>(0,0)), _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/VarianceLin/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().reg.covariance.at<double>(0,0), _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/StdDevAng/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), sqrt((float)odom.info().reg.covariance.at<double>(5,5)), _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/VarianceAng/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().reg.covariance.at<double>(5,5), _preferencesDialog->isCacheSavedInFigures());
 	_ui->statsToolBox->updateStat("Odometry/TimeEstimation/ms", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().timeEstimation*1000.0f, _preferencesDialog->isCacheSavedInFigures());
 	_ui->statsToolBox->updateStat("Odometry/TimeFiltering/ms", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().timeParticleFiltering*1000.0f, _preferencesDialog->isCacheSavedInFigures());
 	_ui->statsToolBox->updateStat("Odometry/Features/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().features, _preferencesDialog->isCacheSavedInFigures());
@@ -1416,6 +1464,8 @@ void MainWindow::processOdometry(const rtabmap::OdometryEvent & odom, bool dataI
 
 	_ui->statsToolBox->updateStat("GUI/Refresh odom/ms", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), time.elapsed()*1000.0, _preferencesDialog->isCacheSavedInFigures());
 	_processingOdometry = false;
+
+	emit(odometryProcessed());
 }
 
 void MainWindow::processStats(const rtabmap::Statistics & stat)
@@ -1459,6 +1509,8 @@ void MainWindow::processStats(const rtabmap::Statistics & stat)
 
 		bool smallMovement = (bool)uValue(stat.data(), Statistics::kMemorySmall_movement(), 0.0f);
 
+		bool fastMovement = (bool)uValue(stat.data(), Statistics::kMemoryFast_movement(), 0.0f);
+
 		// update cache
 		Signature signature;
 		if(uContains(stat.getSignatures(), stat.refImageId()))
@@ -1469,7 +1521,7 @@ void MainWindow::processStats(const rtabmap::Statistics & stat)
 			if( uStr2Bool(_preferencesDialog->getParameter(Parameters::kMemIncrementalMemory())) &&
 				signature.getWeight()>=0) // ignore intermediate nodes for the cache
 			{
-				if(smallMovement)
+				if(smallMovement || fastMovement)
 				{
 					_cachedSignatures.insert(-1, signature); // negative means temporary
 				}
@@ -1487,8 +1539,8 @@ void MainWindow::processStats(const rtabmap::Statistics & stat)
 			_ui->imageView_source->clear();
 			_ui->imageView_loopClosure->clear();
 
-			_ui->imageView_source->setBackgroundColor(Qt::black);
-			_ui->imageView_loopClosure->setBackgroundColor(Qt::black);
+			_ui->imageView_source->setBackgroundColor(_ui->imageView_source->getDefaultBackgroundColor());
+			_ui->imageView_loopClosure->setBackgroundColor(_ui->imageView_loopClosure->getDefaultBackgroundColor());
 
 			_ui->label_matchId->clear();
 		}
@@ -1519,6 +1571,10 @@ void MainWindow::processStats(const rtabmap::Statistics & stat)
 		{
 			_ui->imageView_source->setBackgroundColor(Qt::gray);
 		}
+		else if(fastMovement)
+		{
+			_ui->imageView_source->setBackgroundColor(Qt::magenta);
+		}
 		// Set color code as tooltip
 		if(_ui->label_refId->toolTip().isEmpty())
 		{
@@ -1529,6 +1585,7 @@ void MainWindow::processStats(const rtabmap::Statistics & stat)
 				"  Dark Yellow = Proximity Detection in Time\n"
 				"  Dark Cyan = Neighbor Link Refined\n"
 				"  Gray = Small Movement\n"
+				"  Magenta = Fast Movement\n"
 				"Feature Color code:\n"
 				"  Green = New\n"
 				"  Yellow = New but Not Unique\n"
@@ -1876,7 +1933,7 @@ void MainWindow::processStats(const rtabmap::Statistics & stat)
 	_ui->statsToolBox->updateStat("GUI/Refresh stats/ms", _preferencesDialog->isTimeUsedInFigures()?stat.stamp()-_firstStamp:stat.refImageId(), elapsedTime, _preferencesDialog->isCacheSavedInFigures());
 	if(_ui->actionAuto_screen_capture->isChecked() && !_autoScreenCaptureOdomSync)
 	{
-		this->captureScreen(_autoScreenCaptureRAM);
+		this->captureScreen(_autoScreenCaptureRAM, _autoScreenCapturePNG);
 	}
 
 	if(!_preferencesDialog->isImagesKept())
@@ -1897,6 +1954,8 @@ void MainWindow::processStats(const rtabmap::Statistics & stat)
 	}
 
 	_processingStatistics = false;
+
+	emit(statsProcessed());
 }
 
 void MainWindow::updateMapCloud(
@@ -1935,7 +1994,17 @@ void MainWindow::updateMapCloud(
 	{
 		float radius = _preferencesDialog->getCloudFilteringRadius();
 		float angle = _preferencesDialog->getCloudFilteringAngle()*CV_PI/180.0; // convert to rad
-		poses = rtabmap::graph::radiusPosesFiltering(posesIn, radius, angle);
+		bool hasNeg = posesIn.find(-1) != posesIn.end();
+		if(hasNeg)
+		{
+			std::map<int, Transform> posesInTmp = posesIn;
+			posesInTmp.erase(-1);
+			poses = rtabmap::graph::radiusPosesFiltering(posesIn, radius, angle);
+		}
+		else
+		{
+			poses = rtabmap::graph::radiusPosesFiltering(posesIn, radius, angle);
+		}
 		for(std::map<int, Transform>::iterator iter= poses.begin(); iter!=poses.end(); ++iter)
 		{
 			std::map<int, int>::const_iterator jter = mapIdsIn.find(iter->first);
@@ -1948,10 +2017,15 @@ void MainWindow::updateMapCloud(
 				UERROR("map id of node %d not found!", iter->first);
 			}
 		}
+		//keep -1
+		if(hasNeg)
+		{
+			poses.insert(*posesIn.find(-1));
+		}
 
 		if(verboseProgress)
 		{
-			_initProgressDialog->appendText(tr("Map update: %1 nodes shown of %2 (cloud filtering is on)").arg(poses.size()).arg(posesIn.size()));
+			_progressDialog->appendText(tr("Map update: %1 nodes shown of %2 (cloud filtering is on)").arg(poses.size()).arg(posesIn.size()));
 			QApplication::processEvents();
 		}
 	}
@@ -2162,8 +2236,8 @@ void MainWindow::updateMapCloud(
 
 			if(verboseProgress)
 			{
-				_initProgressDialog->appendText(tr("Updated cloud %1 (%2/%3)").arg(iter->first).arg(i).arg(poses.size()));
-				_initProgressDialog->incrementStep();
+				_progressDialog->appendText(tr("Updated cloud %1 (%2/%3)").arg(iter->first).arg(i).arg(poses.size()));
+				_progressDialog->incrementStep();
 				if(poses.size() < 200 || i % 100 == 0)
 				{
 					QApplication::processEvents();
@@ -2651,9 +2725,9 @@ std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::IndicesPtr> MainWindow::c
 					if(_preferencesDialog->getSubtractFilteringAngle() > 0.0f)
 					{
 						//normals required
-						if(_preferencesDialog->getNormalKSearch() > 0)
+						if(_preferencesDialog->getNormalKSearch() > 0 || _preferencesDialog->getNormalRadiusSearch() > 0)
 						{
-							pcl::PointCloud<pcl::Normal>::Ptr normals = util3d::computeNormals(cloud, indices, _preferencesDialog->getNormalKSearch(), viewPoint);
+							pcl::PointCloud<pcl::Normal>::Ptr normals = util3d::computeNormals(cloud, indices, _preferencesDialog->getNormalKSearch(), _preferencesDialog->getNormalRadiusSearch(), viewPoint);
 							pcl::concatenateFields(*cloud, *normals, *cloudWithNormals);
 						}
 						else
@@ -2790,7 +2864,7 @@ std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::IndicesPtr> MainWindow::c
 
 				if(_preferencesDialog->getNormalKSearch() > 0 && cloudWithNormals->size() == 0)
 				{
-					pcl::PointCloud<pcl::Normal>::Ptr normals = util3d::computeNormals(cloud, indices, _preferencesDialog->getNormalKSearch(), viewPoint);
+					pcl::PointCloud<pcl::Normal>::Ptr normals = util3d::computeNormals(cloud, indices, _preferencesDialog->getNormalKSearch(), _preferencesDialog->getNormalRadiusSearch(), viewPoint);
 					pcl::concatenateFields(*cloud, *normals, *cloudWithNormals);
 				}
 
@@ -2880,22 +2954,48 @@ void MainWindow::createAndAddScanToMap(int nodeId, const Transform & pose, int m
 			scan = util3d::downsample(scan, _preferencesDialog->getDownsamplingStepScan(0));
 		}
 
-		if(scan.channels() == 6)
+		pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
+		pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudRGB;
+		pcl::PointCloud<pcl::PointNormal>::Ptr cloudWithNormals;
+		pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloudRGBWithNormals;
+		if(scan.channels() == 7 && _preferencesDialog->getCloudVoxelSizeScan(0) <= 0.0)
 		{
-			pcl::PointCloud<pcl::PointNormal>::Ptr cloud;
-			cloud = util3d::laserScanToPointCloudNormal(scan, iter->sensorData().laserScanInfo().localTransform());
-			if(_preferencesDialog->getCloudVoxelSizeScan(0) > 0.0)
+			cloudRGBWithNormals = util3d::laserScanToPointCloudRGBNormal(scan, iter->sensorData().laserScanInfo().localTransform());
+		}
+		else if((scan.channels() == 5 || scan.channels() == 6) && _preferencesDialog->getCloudVoxelSizeScan(0) <= 0.0)
+		{
+			cloudWithNormals = util3d::laserScanToPointCloudNormal(scan, iter->sensorData().laserScanInfo().localTransform());
+		}
+		else if(scan.channels() == 4)
+		{
+			cloudRGB = util3d::laserScanToPointCloudRGB(scan, iter->sensorData().laserScanInfo().localTransform());
+		}
+		else
+		{
+			cloud = util3d::laserScanToPointCloud(scan, iter->sensorData().laserScanInfo().localTransform());
+		}
+
+		if(_preferencesDialog->getCloudVoxelSizeScan(0) > 0.0)
+		{
+			if(cloud.get())
 			{
 				cloud = util3d::voxelize(cloud, _preferencesDialog->getCloudVoxelSizeScan(0));
 			}
+			if(cloudRGB.get())
+			{
+				cloudRGB = util3d::voxelize(cloudRGB, _preferencesDialog->getCloudVoxelSizeScan(0));
+			}
+		}
 
-			// Do ceiling/floor filtering
-			if(cloud->size() &&
-			   (_preferencesDialog->getScanFloorFilteringHeight() != 0.0 ||
-			   _preferencesDialog->getScanCeilingFilteringHeight() != 0.0))
+		// Do ceiling/floor filtering
+		if((scan.channels() > 2 && scan.channels() != 5) && // don't filter 2D scans
+		   (_preferencesDialog->getScanFloorFilteringHeight() != 0.0 ||
+		   _preferencesDialog->getScanCeilingFilteringHeight() != 0.0))
+		{
+			if(cloudRGBWithNormals.get())
 			{
 				// perform in /map frame
-				pcl::PointCloud<pcl::PointNormal>::Ptr cloudTransformed = util3d::transformPointCloud(cloud, pose);
+				pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloudTransformed = util3d::transformPointCloud(cloudRGBWithNormals, pose);
 				cloudTransformed = rtabmap::util3d::passThrough(
 						cloudTransformed,
 						"z",
@@ -2903,53 +3003,35 @@ void MainWindow::createAndAddScanToMap(int nodeId, const Transform & pose, int m
 						_preferencesDialog->getScanCeilingFilteringHeight()==0.0?(float)std::numeric_limits<int>::max():_preferencesDialog->getScanCeilingFilteringHeight());
 
 				//transform back in sensor frame
-				cloud = util3d::transformPointCloud(cloudTransformed, pose.inverse());
+				cloudRGBWithNormals = util3d::transformPointCloud(cloudTransformed, pose.inverse());
 			}
+			if(cloudWithNormals.get())
+			{
+				// perform in /map frame
+				pcl::PointCloud<pcl::PointNormal>::Ptr cloudTransformed = util3d::transformPointCloud(cloudWithNormals, pose);
+				cloudTransformed = rtabmap::util3d::passThrough(
+						cloudTransformed,
+						"z",
+						_preferencesDialog->getScanFloorFilteringHeight()==0.0?(float)std::numeric_limits<int>::min():_preferencesDialog->getScanFloorFilteringHeight(),
+						_preferencesDialog->getScanCeilingFilteringHeight()==0.0?(float)std::numeric_limits<int>::max():_preferencesDialog->getScanCeilingFilteringHeight());
 
-			QColor color = Qt::gray;
-			if(mapId >= 0)
-			{
-				color = (Qt::GlobalColor)(mapId+3 % 12 + 7 );
+				//transform back in sensor frame
+				cloudWithNormals = util3d::transformPointCloud(cloudTransformed, pose.inverse());
 			}
-			if(!_cloudViewer->addCloud(scanName, cloud, pose, color))
+			if(cloudRGB.get())
 			{
-				UERROR("Adding cloud %d to viewer failed!", nodeId);
-			}
-			else
-			{
-				if(nodeId > 0)
-				{
-					if(_preferencesDialog->getCloudVoxelSizeScan(0) > 0.0)
-					{
-						//reconvert the voxelized cloud
-						scan = util3d::laserScanFromPointCloud(*cloud);
-					}
-					else
-					{
-						scan = util3d::transformLaserScan(scan, iter->sensorData().laserScanInfo().localTransform());
-					}
-					_createdScans.insert(std::make_pair(nodeId, scan)); // keep scan in base_link frame
-				}
-				_cloudViewer->setCloudOpacity(scanName, _preferencesDialog->getScanOpacity(0));
-				_cloudViewer->setCloudPointSize(scanName, _preferencesDialog->getScanPointSize(0));
-			}
-		}
-		else
-		{
-			pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
-			cloud = util3d::laserScanToPointCloud(scan, iter->sensorData().laserScanInfo().localTransform());
-			bool filtered = false;
-			if(_preferencesDialog->getCloudVoxelSizeScan(0) > 0.0)
-			{
-				cloud = util3d::voxelize(cloud, _preferencesDialog->getCloudVoxelSizeScan(0));
-				filtered = true;
-			}
+				// perform in /map frame
+				pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudTransformed = util3d::transformPointCloud(cloudRGB, pose);
+				cloudTransformed = rtabmap::util3d::passThrough(
+						cloudTransformed,
+						"z",
+						_preferencesDialog->getScanFloorFilteringHeight()==0.0?(float)std::numeric_limits<int>::min():_preferencesDialog->getScanFloorFilteringHeight(),
+						_preferencesDialog->getScanCeilingFilteringHeight()==0.0?(float)std::numeric_limits<int>::max():_preferencesDialog->getScanCeilingFilteringHeight());
 
-			// Do ceiling/floor filtering
-			if(scan.channels() > 2 && // don't filter 2D scans
-				cloud->size() &&
-			   (_preferencesDialog->getScanFloorFilteringHeight() != 0.0 ||
-			   _preferencesDialog->getScanCeilingFilteringHeight() != 0.0))
+				//transform back in sensor frame
+				cloudRGB = util3d::transformPointCloud(cloudTransformed, pose.inverse());
+			}
+			if(cloud.get())
 			{
 				// perform in /map frame
 				pcl::PointCloud<pcl::PointXYZ>::Ptr cloudTransformed = util3d::transformPointCloud(cloud, pose);
@@ -2961,77 +3043,108 @@ void MainWindow::createAndAddScanToMap(int nodeId, const Transform & pose, int m
 
 				//transform back in sensor frame
 				cloud = util3d::transformPointCloud(cloudTransformed, pose.inverse());
-				filtered = true;
 			}
+		}
 
-			pcl::PointCloud<pcl::PointNormal>::Ptr cloudWithNormals;
-			if(scan.channels() > 2 && // don't compute normals for 2D scans
-				cloud->size() &&
-			   _preferencesDialog->getScanNormalKSearch() > 0)
-			{
-				pcl::PointCloud<pcl::Normal>::Ptr normals = util3d::computeNormals(cloud, _preferencesDialog->getScanNormalKSearch());
-				cloudWithNormals.reset(new pcl::PointCloud<pcl::PointNormal>);
-				pcl::concatenateFields(*cloud, *normals, *cloudWithNormals);
-				filtered = true;
-			}
+		if(	(cloud.get() || cloudRGB.get()) &&
+		   (_preferencesDialog->getScanNormalKSearch() > 0 || _preferencesDialog->getScanNormalRadiusSearch() > 0.0))
+		{
+			Eigen::Vector3f scanViewpoint(
+				iter->sensorData().laserScanInfo().localTransform().x(),
+				iter->sensorData().laserScanInfo().localTransform().y(),
+				iter->sensorData().laserScanInfo().localTransform().z());
 
-			QColor color = Qt::gray;
-			if(mapId >= 0)
+			pcl::PointCloud<pcl::Normal>::Ptr normals;
+			if(cloud.get() && cloud->size())
 			{
-				color = (Qt::GlobalColor)(mapId+3 % 12 + 7 );
-			}
-			if(cloudWithNormals.get())
-			{
-				if(!_cloudViewer->addCloud(scanName, cloudWithNormals, pose, color))
+				if(scan.channels() == 2 || scan.channels() == 5)
 				{
-					UERROR("Adding cloud %d to viewer failed!", nodeId);
+					normals = util3d::computeFastOrganizedNormals2D(cloud, _preferencesDialog->getScanNormalKSearch(), _preferencesDialog->getScanNormalRadiusSearch(), scanViewpoint);
 				}
 				else
 				{
-					if(nodeId > 0)
-					{
-						//reconvert the voxelized cloud
-						scan = util3d::laserScanFromPointCloud(*cloudWithNormals);
-						_createdScans.insert(std::make_pair(nodeId, scan)); // keep scan in base_link frame
-					}
-
-					_cloudViewer->setCloudOpacity(scanName, _preferencesDialog->getScanOpacity(0));
-					_cloudViewer->setCloudPointSize(scanName, _preferencesDialog->getScanPointSize(0));
+					normals = util3d::computeNormals(cloud, _preferencesDialog->getScanNormalKSearch(), _preferencesDialog->getScanNormalRadiusSearch(), scanViewpoint);
 				}
+				cloudWithNormals.reset(new pcl::PointCloud<pcl::PointNormal>);
+				pcl::concatenateFields(*cloud, *normals, *cloudWithNormals);
+				cloud.reset();
 			}
 			else
 			{
-				if(!_cloudViewer->addCloud(scanName, cloud, pose, color))
+				UASSERT(cloudRGB.get() && cloudRGB->size()); // Assuming 4 channels cannot be 2D
+				normals = util3d::computeNormals(cloudRGB, _preferencesDialog->getScanNormalKSearch(), _preferencesDialog->getScanNormalRadiusSearch(), scanViewpoint);
+				cloudRGBWithNormals.reset(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+				pcl::concatenateFields(*cloudRGB, *normals, *cloudRGBWithNormals);
+				cloudRGB.reset();
+			}
+		}
+
+		QColor color = Qt::gray;
+		if(mapId >= 0)
+		{
+			color = (Qt::GlobalColor)(mapId+3 % 12 + 7 );
+		}
+		bool added = false;
+		if(cloudRGBWithNormals.get())
+		{
+			added = _cloudViewer->addCloud(scanName, cloudRGBWithNormals, pose, color);
+			if(added && nodeId > 0)
+			{
+				scan = util3d::laserScanFromPointCloud(*cloudRGBWithNormals);
+			}
+		}
+		else if(cloudWithNormals.get())
+		{
+			added = _cloudViewer->addCloud(scanName, cloudWithNormals, pose, color);
+			if(added && nodeId > 0)
+			{
+				if(scan.channels() == 5)
 				{
-					UERROR("Adding cloud %d to viewer failed!", nodeId);
+					scan = util3d::laserScan2dFromPointCloud(*cloudWithNormals);
 				}
 				else
 				{
-					if(nodeId > 0)
-					{
-						if(filtered)
-						{
-							//reconvert the voxelized cloud
-							if(scan.channels() == 2)
-							{
-								scan = util3d::laserScan2dFromPointCloud(*cloud);
-							}
-							else
-							{
-								scan = util3d::laserScanFromPointCloud(*cloud);
-							}
-						}
-						else
-						{
-							scan = util3d::transformLaserScan(scan, iter->sensorData().laserScanInfo().localTransform());
-						}
-						_createdScans.insert(std::make_pair(nodeId, scan)); // keep scan in base_link frame
-					}
-
-					_cloudViewer->setCloudOpacity(scanName, _preferencesDialog->getScanOpacity(0));
-					_cloudViewer->setCloudPointSize(scanName, _preferencesDialog->getScanPointSize(0));
+					scan = util3d::laserScanFromPointCloud(*cloudWithNormals);
 				}
 			}
+		}
+		else if(cloudRGB.get())
+		{
+			added = _cloudViewer->addCloud(scanName, cloudRGB, pose, color);
+			if(added && nodeId > 0)
+			{
+				scan = util3d::laserScanFromPointCloud(*cloudRGB);
+			}
+		}
+		else
+		{
+			UASSERT(cloud.get());
+			added = _cloudViewer->addCloud(scanName, cloud, pose, color);
+			if(added && nodeId > 0)
+			{
+				if(scan.channels() == 2)
+				{
+					scan = util3d::laserScan2dFromPointCloud(*cloud);
+				}
+				else
+				{
+					scan = util3d::laserScanFromPointCloud(*cloud);
+				}
+			}
+		}
+		if(!added)
+		{
+			UERROR("Adding cloud %d to viewer failed!", nodeId);
+		}
+		else
+		{
+			if(nodeId > 0)
+			{
+				_createdScans.insert(std::make_pair(nodeId, scan)); // keep scan in base_link frame
+			}
+
+			_cloudViewer->setCloudOpacity(scanName, _preferencesDialog->getScanOpacity(0));
+			_cloudViewer->setCloudPointSize(scanName, _preferencesDialog->getScanPointSize(0));
 		}
 	}
 }
@@ -3137,169 +3250,54 @@ Transform MainWindow::alignPosesToGroundTruth(
 	Transform t = Transform::getIdentity();
 	if(groundTruth.size() && poses.size())
 	{
+		float translational_rmse = 0.0f;
+		float translational_mean = 0.0f;
+		float translational_median = 0.0f;
+		float translational_std = 0.0f;
+		float translational_min = 0.0f;
+		float translational_max = 0.0f;
+		float rotational_rmse = 0.0f;
+		float rotational_mean = 0.0f;
+		float rotational_median = 0.0f;
+		float rotational_std = 0.0f;
+		float rotational_min = 0.0f;
+		float rotational_max = 0.0f;
+
+		Transform gtToMap = graph::calcRMSE(
+				groundTruth,
+				poses,
+				translational_rmse,
+				translational_mean,
+				translational_median,
+				translational_std,
+				translational_min,
+				translational_max,
+				rotational_rmse,
+				rotational_mean,
+				rotational_median,
+				rotational_std,
+				rotational_min,
+				rotational_max);
+
 		if(_preferencesDialog->isGroundTruthAligned())
 		{
-			unsigned int maxSize = poses.size()>groundTruth.size()? (unsigned int)poses.size(): (unsigned int)groundTruth.size();
-			pcl::PointCloud<pcl::PointXYZ> cloud1, cloud2;
-			cloud1.resize(maxSize);
-			cloud2.resize(maxSize);
-			int oi = 0;
-			int idFirst = 0;
-			for(std::map<int, Transform>::const_iterator iter=groundTruth.begin(); iter!=groundTruth.end(); ++iter)
-			{
-				std::map<int, Transform>::iterator iter2 = poses.find(iter->first);
-				if(iter2!=poses.end())
-				{
-					if(oi==0)
-					{
-						idFirst = iter->first;
-					}
-					cloud1[oi] = pcl::PointXYZ(iter->second.x(), iter->second.y(), iter->second.z());
-					cloud2[oi++] = pcl::PointXYZ(iter2->second.x(), iter2->second.y(), iter2->second.z());
-				}
-			}
-
-			if(oi>5)
-			{
-				cloud1.resize(oi);
-				cloud2.resize(oi);
-
-				t = util3d::transformFromXYZCorrespondencesSVD(cloud2, cloud1);
-			}
-			else if(idFirst)
-			{
-				t = groundTruth.at(idFirst) * poses.at(idFirst).inverse();
-			}
-			if(!t.isIdentity())
-			{
-				for(std::map<int, Transform>::iterator iter=poses.begin(); iter!=poses.end(); ++iter)
-				{
-					iter->second = t * iter->second;
-				}
-			}
-			UDEBUG("t=%s", t.prettyPrint().c_str());
+			t = gtToMap;
 		}
 
 		// ground truth live statistics
-		std::vector<float> translationalErrors(poses.size());
-		std::vector<float> rotationalErrors(poses.size());
-		int oi=0;
-		float sumTranslationalErrors = 0.0f;
-		float sumRotationalErrors = 0.0f;
-		float sumSqrdTranslationalErrors = 0.0f;
-		float sumSqrdRotationalErrors = 0.0f;
-		float radToDegree = 180.0f / M_PI;
-		float translational_min = 0.0f;
-		float translational_max = 0.0f;
-		float rotational_min = 0.0f;
-		float rotational_max = 0.0f;
-		for(std::map<int, Transform>::iterator iter=poses.begin(); iter!=poses.end(); ++iter)
-		{
-			std::map<int, Transform>::const_iterator jter = groundTruth.find(iter->first);
-			if(jter!=groundTruth.end())
-			{
-				Eigen::Vector3f vA = iter->second.toEigen3f().rotation()*Eigen::Vector3f(1,0,0);
-				Eigen::Vector3f vB = jter->second.toEigen3f().rotation()*Eigen::Vector3f(1,0,0);
-				double a = pcl::getAngle3D(Eigen::Vector4f(vA[0], vA[1], vA[2], 0), Eigen::Vector4f(vB[0], vB[1], vB[2], 0));
-				rotationalErrors[oi] = a*radToDegree;
-				translationalErrors[oi] = iter->second.getDistance(jter->second);
+		UINFO("translational_rmse=%f", translational_rmse);
+		UINFO("translational_mean=%f", translational_mean);
+		UINFO("translational_median=%f", translational_median);
+		UINFO("translational_std=%f", translational_std);
+		UINFO("translational_min=%f", translational_min);
+		UINFO("translational_max=%f", translational_max);
 
-				sumTranslationalErrors+=translationalErrors[oi];
-				sumSqrdTranslationalErrors+=translationalErrors[oi]*translationalErrors[oi];
-				sumRotationalErrors+=rotationalErrors[oi];
-				sumSqrdRotationalErrors+=rotationalErrors[oi]*rotationalErrors[oi];
-
-				if(oi == 0)
-				{
-					translational_min = translational_max = translationalErrors[oi];
-					rotational_min = rotational_max = rotationalErrors[oi];
-				}
-				else
-				{
-					if(translationalErrors[oi] < translational_min)
-					{
-						translational_min = translationalErrors[oi];
-					}
-					else if(translationalErrors[oi] > translational_max)
-					{
-						translational_max = translationalErrors[oi];
-					}
-
-					if(rotationalErrors[oi] < rotational_min)
-					{
-						rotational_min = rotationalErrors[oi];
-					}
-					else if(rotationalErrors[oi] > rotational_max)
-					{
-						rotational_max = rotationalErrors[oi];
-					}
-				}
-
-				++oi;
-			}
-		}
-		translationalErrors.resize(oi);
-		rotationalErrors.resize(oi);
-		if(oi)
-		{
-			float total = float(oi);
-			float translational_rmse = std::sqrt(sumSqrdTranslationalErrors/total);
-			float translational_mean = sumTranslationalErrors/total;
-			float translational_median = translationalErrors[oi/2];
-			float translational_std = std::sqrt(uVariance(translationalErrors, translational_mean));
-
-			float rotational_rmse = std::sqrt(sumSqrdRotationalErrors/total);
-			float rotational_mean = sumRotationalErrors/total;
-			float rotational_median = rotationalErrors[oi/2];
-			float rotational_std = std::sqrt(uVariance(rotationalErrors, rotational_mean));
-
-			UINFO("translational_rmse=%f", translational_rmse);
-			UINFO("translational_mean=%f", translational_mean);
-			UINFO("translational_median=%f", translational_median);
-			UINFO("translational_std=%f", translational_std);
-			UINFO("translational_min=%f", translational_min);
-			UINFO("translational_max=%f", translational_max);
-
-			UINFO("rotational_rmse=%f", rotational_rmse);
-			UINFO("rotational_mean=%f", rotational_mean);
-			UINFO("rotational_median=%f", rotational_median);
-			UINFO("rotational_std=%f", rotational_std);
-			UINFO("rotational_min=%f", rotational_min);
-			UINFO("rotational_max=%f", rotational_max);
-
-			if((_preferencesDialog->isTimeUsedInFigures() && stamp > 0.0) || (refId && refId>=0))
-			{
-				_ui->statsToolBox->updateStat("GT/translational_rmse/", _preferencesDialog->isTimeUsedInFigures()?stamp-_firstStamp:refId, translational_rmse, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/translational_mean/", _preferencesDialog->isTimeUsedInFigures()?stamp-_firstStamp:refId, translational_mean, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/translational_median/", _preferencesDialog->isTimeUsedInFigures()?stamp-_firstStamp:refId, translational_median, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/translational_std/", _preferencesDialog->isTimeUsedInFigures()?stamp-_firstStamp:refId, translational_std, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/translational_min/", _preferencesDialog->isTimeUsedInFigures()?stamp-_firstStamp:refId, translational_min, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/translational_max/", _preferencesDialog->isTimeUsedInFigures()?stamp-_firstStamp:refId, translational_max, _preferencesDialog->isCacheSavedInFigures());
-
-				_ui->statsToolBox->updateStat("GT/rotational_rmse/", _preferencesDialog->isTimeUsedInFigures()?stamp-_firstStamp:refId, rotational_rmse, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/rotational_mean/", _preferencesDialog->isTimeUsedInFigures()?stamp-_firstStamp:refId, rotational_mean, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/rotational_median/", _preferencesDialog->isTimeUsedInFigures()?stamp-_firstStamp:refId, rotational_median, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/rotational_std/", _preferencesDialog->isTimeUsedInFigures()?stamp-_firstStamp:refId, rotational_std, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/rotational_min/", _preferencesDialog->isTimeUsedInFigures()?stamp-_firstStamp:refId, rotational_min, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/rotational_max/", _preferencesDialog->isTimeUsedInFigures()?stamp-_firstStamp:refId, rotational_max, _preferencesDialog->isCacheSavedInFigures());
-			}
-			else
-			{
-				_ui->statsToolBox->updateStat("GT/translational_rmse/", translational_rmse, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/translational_mean/", translational_mean, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/translational_median/", translational_median, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/translational_std/", translational_std, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/translational_min/", translational_min, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/translational_max/", translational_max, _preferencesDialog->isCacheSavedInFigures());
-
-				_ui->statsToolBox->updateStat("GT/rotational_rmse/", rotational_rmse, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/rotational_mean/", rotational_mean, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/rotational_median/", rotational_median, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/rotational_std/", rotational_std, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/rotational_min/", rotational_min, _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("GT/rotational_max/", rotational_max, _preferencesDialog->isCacheSavedInFigures());
-			}
-		}
+		UINFO("rotational_rmse=%f", rotational_rmse);
+		UINFO("rotational_mean=%f", rotational_mean);
+		UINFO("rotational_median=%f", rotational_median);
+		UINFO("rotational_std=%f", rotational_std);
+		UINFO("rotational_min=%f", rotational_min);
+		UINFO("rotational_max=%f", rotational_max);
 	}
 	return t;
 }
@@ -3308,43 +3306,58 @@ void MainWindow::updateNodeVisibility(int nodeId, bool visible)
 {
 	UINFO("Update visibility %d", nodeId);
 	QMap<std::string, Transform> viewerClouds = _cloudViewer->getAddedClouds();
-	if(_preferencesDialog->isCloudsShown(0))
+	Transform pose;
+	if(_currentGTPosesMap.size() &&
+		_ui->actionAnchor_clouds_to_ground_truth->isChecked() &&
+		_currentGTPosesMap.find(nodeId)!=_currentGTPosesMap.end())
 	{
-		std::string cloudName = uFormat("cloud%d", nodeId);
-		if(visible && !viewerClouds.contains(cloudName) && _cachedSignatures.contains(nodeId) && _currentPosesMap.find(nodeId) != _currentPosesMap.end())
-		{
-			createAndAddCloudToMap(nodeId, _currentPosesMap.find(nodeId)->second, uValue(_currentMapIds, nodeId, -1));
-		}
-		else if(viewerClouds.contains(cloudName))
-		{
-			if(visible && _currentPosesMap.find(nodeId) != _currentPosesMap.end())
-			{
-				//make sure the transformation was done
-				_cloudViewer->updateCloudPose(cloudName, _currentPosesMap.find(nodeId)->second);
-			}
-			_cloudViewer->setCloudVisibility(cloudName, visible);
-		}
+		pose = _currentGTPosesMap.at(nodeId);
+	}
+	else if(_currentPosesMap.find(nodeId) != _currentPosesMap.end())
+	{
+		pose = _currentPosesMap.at(nodeId);
 	}
 
-	if(_preferencesDialog->isScansShown(0))
+	if(!pose.isNull() || !visible)
 	{
-		std::string scanName = uFormat("scan%d", nodeId);
-		if(visible && !viewerClouds.contains(scanName) && _cachedSignatures.contains(nodeId) && _currentPosesMap.find(nodeId) != _currentPosesMap.end())
+		if(_preferencesDialog->isCloudsShown(0))
 		{
-			createAndAddScanToMap(nodeId, _currentPosesMap.find(nodeId)->second, uValue(_currentMapIds, nodeId, -1));
-		}
-		else if(viewerClouds.contains(scanName))
-		{
-			if(visible && _currentPosesMap.find(nodeId) != _currentPosesMap.end())
+			std::string cloudName = uFormat("cloud%d", nodeId);
+			if(visible && !viewerClouds.contains(cloudName) && _cachedSignatures.contains(nodeId))
 			{
-				//make sure the transformation was done
-				_cloudViewer->updateCloudPose(scanName, _currentPosesMap.find(nodeId)->second);
+				createAndAddCloudToMap(nodeId, pose, uValue(_currentMapIds, nodeId, -1));
 			}
-			_cloudViewer->setCloudVisibility(scanName, visible);
+			else if(viewerClouds.contains(cloudName))
+			{
+				if(visible)
+				{
+					//make sure the transformation was done
+					_cloudViewer->updateCloudPose(cloudName, pose);
+				}
+				_cloudViewer->setCloudVisibility(cloudName, visible);
+			}
 		}
-	}
 
-	_cloudViewer->update();
+		if(_preferencesDialog->isScansShown(0))
+		{
+			std::string scanName = uFormat("scan%d", nodeId);
+			if(visible && !viewerClouds.contains(scanName) && _cachedSignatures.contains(nodeId))
+			{
+				createAndAddScanToMap(nodeId, pose, uValue(_currentMapIds, nodeId, -1));
+			}
+			else if(viewerClouds.contains(scanName))
+			{
+				if(visible)
+				{
+					//make sure the transformation was done
+					_cloudViewer->updateCloudPose(scanName, pose);
+				}
+				_cloudViewer->setCloudVisibility(scanName, visible);
+			}
+		}
+
+		_cloudViewer->update();
+	}
 }
 
 void MainWindow::updateGraphView()
@@ -3368,13 +3381,13 @@ void MainWindow::processRtabmapEventInit(int status, const QString & info)
 {
 	if((RtabmapEventInit::Status)status == RtabmapEventInit::kInitializing)
 	{
-		_initProgressDialog->resetProgress();
-		_initProgressDialog->show();
+		_progressDialog->resetProgress();
+		_progressDialog->show();
 		this->changeState(MainWindow::kInitializing);
 	}
 	else if((RtabmapEventInit::Status)status == RtabmapEventInit::kInitialized)
 	{
-		_initProgressDialog->setValue(_initProgressDialog->maximumSteps());
+		_progressDialog->setValue(_progressDialog->maximumSteps());
 		this->changeState(MainWindow::kInitialized);
 
 		if(!_openedDatabasePath.isEmpty())
@@ -3384,8 +3397,8 @@ void MainWindow::processRtabmapEventInit(int status, const QString & info)
 	}
 	else if((RtabmapEventInit::Status)status == RtabmapEventInit::kClosing)
 	{
-		_initProgressDialog->resetProgress();
-		_initProgressDialog->show();
+		_progressDialog->resetProgress();
+		_progressDialog->show();
 		if(_state!=kApplicationClosing)
 		{
 			this->changeState(MainWindow::kClosing);
@@ -3393,7 +3406,7 @@ void MainWindow::processRtabmapEventInit(int status, const QString & info)
 	}
 	else if((RtabmapEventInit::Status)status == RtabmapEventInit::kClosed)
 	{
-		_initProgressDialog->setValue(_initProgressDialog->maximumSteps());
+		_progressDialog->setValue(_progressDialog->maximumSteps());
 
 		if(_databaseUpdated)
 		{
@@ -3471,46 +3484,46 @@ void MainWindow::processRtabmapEventInit(int status, const QString & info)
 	}
 	else
 	{
-		_initProgressDialog->incrementStep();
+		_progressDialog->incrementStep();
 		QString msg(info);
 		if((RtabmapEventInit::Status)status == RtabmapEventInit::kError)
 		{
 			_openedDatabasePath.clear();
 			_newDatabasePath.clear();
 			_newDatabasePathOutput.clear();
-			_initProgressDialog->setAutoClose(false);
+			_progressDialog->setAutoClose(false);
 			msg.prepend(tr("[ERROR] "));
-			_initProgressDialog->appendText(msg);
+			_progressDialog->appendText(msg);
 			this->changeState(MainWindow::kIdle);
 		}
 		else
 		{
-			_initProgressDialog->appendText(msg);
+			_progressDialog->appendText(msg);
 		}
 	}
 }
 
 void MainWindow::processRtabmapEvent3DMap(const rtabmap::RtabmapEvent3DMap & event)
 {
-	_initProgressDialog->appendText("Downloading the map... done.");
-	_initProgressDialog->incrementStep();
+	_progressDialog->appendText("Downloading the map... done.");
+	_progressDialog->incrementStep();
 
 	if(event.getCode())
 	{
 		UERROR("Map received with code error %d!", event.getCode());
-		_initProgressDialog->appendText(uFormat("[ERROR] Map received with code error %d!", event.getCode()).c_str());
-		_initProgressDialog->setAutoClose(false);
+		_progressDialog->appendText(uFormat("[ERROR] Map received with code error %d!", event.getCode()).c_str());
+		_progressDialog->setAutoClose(false);
 	}
 	else
 	{
 
 		_processingDownloadedMap = true;
 		UINFO("Received map!");
-		_initProgressDialog->appendText(tr(" poses = %1").arg(event.getPoses().size()));
-		_initProgressDialog->appendText(tr(" constraints = %1").arg(event.getConstraints().size()));
+		_progressDialog->appendText(tr(" poses = %1").arg(event.getPoses().size()));
+		_progressDialog->appendText(tr(" constraints = %1").arg(event.getConstraints().size()));
 
-		_initProgressDialog->setMaximumSteps(int(event.getSignatures().size()+event.getPoses().size()+1));
-		_initProgressDialog->appendText(QString("Inserting data in the cache (%1 signatures downloaded)...").arg(event.getSignatures().size()));
+		_progressDialog->setMaximumSteps(int(event.getSignatures().size()+event.getPoses().size()+1));
+		_progressDialog->appendText(QString("Inserting data in the cache (%1 signatures downloaded)...").arg(event.getSignatures().size()));
 		QApplication::processEvents();
 
 		int addedSignatures = 0;
@@ -3537,34 +3550,34 @@ void MainWindow::processRtabmapEvent3DMap(const rtabmap::RtabmapEvent3DMap & eve
 				_cachedMemoryUsage += iter->second.sensorData().getMemoryUsed();
 				++addedSignatures;
 			}
-			_initProgressDialog->incrementStep();
+			_progressDialog->incrementStep();
 			QApplication::processEvents();
 		}
-		_initProgressDialog->appendText(tr("Inserted %1 new signatures.").arg(addedSignatures));
-		_initProgressDialog->incrementStep();
+		_progressDialog->appendText(tr("Inserted %1 new signatures.").arg(addedSignatures));
+		_progressDialog->incrementStep();
 		QApplication::processEvents();
 
-		_initProgressDialog->appendText("Inserting data in the cache... done.");
+		_progressDialog->appendText("Inserting data in the cache... done.");
 
 		if(event.getPoses().size())
 		{
-			_initProgressDialog->appendText("Updating the 3D map cloud...");
-			_initProgressDialog->incrementStep();
-			_initProgressDialog->setCancelButtonVisible(true);
+			_progressDialog->appendText("Updating the 3D map cloud...");
+			_progressDialog->incrementStep();
+			_progressDialog->setCancelButtonVisible(true);
 			_progressCanceled = false;
 			QApplication::processEvents();
 			std::map<int, Transform> poses = event.getPoses();
 			alignPosesToGroundTruth(poses, groundTruth);
 			this->updateMapCloud(poses, event.getConstraints(), mapIds, labels, groundTruth, true);
-			_initProgressDialog->appendText("Updating the 3D map cloud... done.");
+			_progressDialog->appendText("Updating the 3D map cloud... done.");
 		}
 		else
 		{
-			_initProgressDialog->appendText("No poses received! The map cloud cannot be updated...");
+			_progressDialog->appendText("No poses received! The map cloud cannot be updated...");
 			UINFO("Map received is empty! Cannot update the map cloud...");
 		}
 
-		_initProgressDialog->appendText(tr("%1 locations are updated to/inserted in the cache.").arg(event.getPoses().size()));
+		_progressDialog->appendText(tr("%1 locations are updated to/inserted in the cache.").arg(event.getPoses().size()));
 
 		if(!_preferencesDialog->isImagesKept())
 		{
@@ -3579,9 +3592,11 @@ void MainWindow::processRtabmapEvent3DMap(const rtabmap::RtabmapEvent3DMap & eve
 		}
 		_processingDownloadedMap = false;
 	}
-	_initProgressDialog->setValue(_initProgressDialog->maximumSteps());
-	_initProgressDialog->setCancelButtonVisible(false);
+	_progressDialog->setValue(_progressDialog->maximumSteps());
+	_progressDialog->setCancelButtonVisible(false);
 	_progressCanceled = false;
+
+	emit(rtabmapEvent3DMapProcessed());
 }
 
 void MainWindow::processRtabmapGlobalPathEvent(const rtabmap::RtabmapGlobalPathEvent & event)
@@ -3754,15 +3769,6 @@ void MainWindow::applyPrefSettings(const rtabmap::ParametersMap & parameters, bo
 
 		if(_state != kIdle && parametersModified.size())
 		{
-			if(parametersModified.erase(Parameters::kRtabmapWorkingDirectory()) &&
-				_state != kMonitoring &&
-				_state != kMonitoringPaused)
-			{
-				QMessageBox::information(this, tr("Working memory changed"),
-						tr("The working directory can't be changed while the "
-								"detector is running (state=%1). This will be "
-								"applied when the detector will stop.").arg(_state));
-			}
 			if(postParamEvent)
 			{
 				this->post(new ParamEvent(parametersModified));
@@ -4017,6 +4023,7 @@ void MainWindow::updateSelectSourceMenu()
 	_ui->actionOpenNI2_kinect->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcOpenNI2);
 	_ui->actionOpenNI2_sense->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcOpenNI2);
 	_ui->actionFreenect2->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcFreenect2);
+	_ui->actionKinect_for_Windows_SDK_v2->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcK4W2);
 	_ui->actionRealSense_R200->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcRealSense);
 	_ui->actionRealSense_ZR300->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcRealSense);
 	_ui->actionStereoDC1394->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcDC1394);
@@ -4045,9 +4052,9 @@ void MainWindow::changeMappingMode()
 	emit mappingModeChanged(_ui->actionSLAM_mode->isChecked());
 }
 
-QString MainWindow::captureScreen(bool cacheInRAM)
+QString MainWindow::captureScreen(bool cacheInRAM, bool png)
 {
-	QString name = (QDateTime::currentDateTime().toString("yyMMddhhmmsszzz") + ".png");
+	QString name = (QDateTime::currentDateTime().toString("yyMMddhhmmsszzz") + (png?".png":".jpg"));
 	_ui->statusbar->clearMessage();
 	QPixmap figure = QPixmap::grabWidget(this);
 
@@ -4059,7 +4066,7 @@ QString MainWindow::captureScreen(bool cacheInRAM)
 		QByteArray bytes;
 		QBuffer buffer(&bytes);
 		buffer.open(QIODevice::WriteOnly);
-		figure.save(&buffer, "PNG");
+		figure.save(&buffer, png?"PNG":"JPEG");
 		_autoScreenCaptureCachedImages.insert(name, bytes);
 	}
 	else
@@ -4094,7 +4101,7 @@ void MainWindow::beep()
 void MainWindow::cancelProgress()
 {
 	_progressCanceled = true;
-	_initProgressDialog->appendText(tr("Canceled!"));
+	_progressDialog->appendText(tr("Canceled!"));
 }
 
 void MainWindow::configGUIModified()
@@ -4166,10 +4173,10 @@ void MainWindow::newDatabase()
 				tr("Cannot create a new database because the temporary database \"%1\" already exists. "
 				  "There may be another instance of RTAB-Map running with the same Working Directory or "
 				  "the last time RTAB-Map was not closed correctly. "
-				  "Do you want to continue (the database will be deleted to create the new one)?").arg(databasePath.c_str()),
-				  QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+				  "Do you want to recover the database (click Ignore to delete it and create a new one)?").arg(databasePath.c_str()),
+				  QMessageBox::Yes | QMessageBox::No | QMessageBox::Ignore, QMessageBox::No);
 
-		if(r == QMessageBox::Yes)
+		if(r == QMessageBox::Ignore)
 		{
 			if(QFile::remove(databasePath.c_str()))
 			{
@@ -4178,6 +4185,44 @@ void MainWindow::newDatabase()
 			else
 			{
 				UERROR("Temporary database \"%s\" could not be deleted!", databasePath.c_str());
+				return;
+			}
+		}
+		else if(r == QMessageBox::Yes)
+		{
+			std::string errorMsg;
+			rtabmap::ProgressDialog * progressDialog = new rtabmap::ProgressDialog(this);
+			progressDialog->setAttribute(Qt::WA_DeleteOnClose);
+			progressDialog->setMaximumSteps(100);
+			progressDialog->show();
+			progressDialog->setCancelButtonVisible(true);
+			RecoveryState state(progressDialog);
+			_recovering = true;
+			if(databaseRecovery(databasePath, false, &errorMsg, &state))
+			{
+				_recovering = false;
+				progressDialog->setValue(progressDialog->maximumSteps());
+				QString newPath = QFileDialog::getSaveFileName(this, tr("Save recovered database"), _preferencesDialog->getWorkingDirectory()+QDir::separator()+QString("recovered.db"), tr("RTAB-Map database files (*.db)"));
+				if(newPath.isEmpty())
+				{
+					return;
+				}
+				if(QFileInfo(newPath).suffix() == "")
+				{
+					newPath += ".db";
+				}
+				if(QFile::exists(newPath))
+				{
+					QFile::remove(newPath);
+				}
+				QFile::rename(databasePath.c_str(), newPath);
+				return;
+			}
+			else
+			{
+				_recovering = false;
+				progressDialog->setValue(progressDialog->maximumSteps());
+				QMessageBox::warning(this, "Database recovery", tr("Database recovery failed: \"%1\".").arg(errorMsg.c_str()));
 				return;
 			}
 		}
@@ -4496,7 +4541,8 @@ void MainWindow::startDetection()
 			_preferencesDialog->getSourceScanFromDepthDecimation(),
 			_preferencesDialog->getSourceScanFromDepthMaxDepth(),
 			_preferencesDialog->getSourceScanVoxelSize(),
-			_preferencesDialog->getSourceScanNormalsK());
+			_preferencesDialog->getSourceScanNormalsK(),
+			_preferencesDialog->getSourceScanNormalsRadius());
 	if(_preferencesDialog->isDepthFilteringAvailable())
 	{
 		if(_preferencesDialog->isBilateralFiltering())
@@ -4556,7 +4602,7 @@ void MainWindow::startDetection()
 		}
 	}
 
-	if(_dataRecorder && _camera)
+	if(_dataRecorder && _camera && _odomThread)
 	{
 		UEventsManager::createPipe(_camera, _dataRecorder, "CameraEvent");
 	}
@@ -4991,11 +5037,11 @@ void MainWindow::postProcessing()
 		return;
 	}
 
-	_initProgressDialog->resetProgress();
-	_initProgressDialog->clear();
-	_initProgressDialog->show();
-	_initProgressDialog->appendText("Post-processing beginning!");
-	_initProgressDialog->setCancelButtonVisible(true);
+	_progressDialog->resetProgress();
+	_progressDialog->clear();
+	_progressDialog->show();
+	_progressDialog->appendText("Post-processing beginning!");
+	_progressDialog->setCancelButtonVisible(true);
 	_progressCanceled = false;
 
 	int totalSteps = 0;
@@ -5011,8 +5057,8 @@ void MainWindow::postProcessing()
 	{
 		totalSteps+=1;
 	}
-	_initProgressDialog->setMaximumSteps(totalSteps);
-	_initProgressDialog->show();
+	_progressDialog->setMaximumSteps(totalSteps);
+	_progressDialog->show();
 
 	ParametersMap parameters = _preferencesDialog->getAllParameters();
 	Optimizer * optimizer = Optimizer::create(parameters);
@@ -5035,7 +5081,7 @@ void MainWindow::postProcessing()
 		UASSERT(detectLoopClosureIterations>0);
 		for(int n=0; n<detectLoopClosureIterations && !_progressCanceled; ++n)
 		{
-			_initProgressDialog->appendText(tr("Looking for more loop closures, clustering poses... (iteration=%1/%2, radius=%3 m angle=%4 degrees)")
+			_progressDialog->appendText(tr("Looking for more loop closures, clustering poses... (iteration=%1/%2, radius=%3 m angle=%4 degrees)")
 					.arg(n+1).arg(detectLoopClosureIterations).arg(clusterRadius).arg(clusterAngle));
 
 			std::multimap<int, int> clusters = graph::radiusPosesClustering(
@@ -5043,8 +5089,8 @@ void MainWindow::postProcessing()
 					clusterRadius,
 					clusterAngle*CV_PI/180.0);
 
-			_initProgressDialog->setMaximumSteps(_initProgressDialog->maximumSteps()+(int)clusters.size());
-			_initProgressDialog->appendText(tr("Looking for more loop closures, clustering poses... found %1 clusters.").arg(clusters.size()));
+			_progressDialog->setMaximumSteps(_progressDialog->maximumSteps()+(int)clusters.size());
+			_progressDialog->appendText(tr("Looking for more loop closures, clustering poses... found %1 clusters.").arg(clusters.size()));
 			QApplication::processEvents();
 
 			int i=0;
@@ -5200,8 +5246,8 @@ void MainWindow::postProcessing()
 															fabs(iter->second.transform().x() - t.x()),
 															fabs(iter->second.transform().y() - t.y()),
 															fabs(iter->second.transform().z() - t.z()));
-													Eigen::Vector3f vA = t1.toEigen3f().rotation()*Eigen::Vector3f(1,0,0);
-													Eigen::Vector3f vB = t2.toEigen3f().rotation()*Eigen::Vector3f(1,0,0);
+													Eigen::Vector3f vA = t1.toEigen3f().linear()*Eigen::Vector3f(1,0,0);
+													Eigen::Vector3f vB = t2.toEigen3f().linear()*Eigen::Vector3f(1,0,0);
 													float angularError = pcl::getAngle3D(Eigen::Vector4f(vA[0], vA[1], vA[2], 0), Eigen::Vector4f(vB[0], vB[1], vB[2], 0));
 													if(linearError > maxLinearError)
 													{
@@ -5250,7 +5296,7 @@ void MainWindow::postProcessing()
 										if(!msg.empty())
 										{
 											UWARN("%s", msg.c_str());
-											_initProgressDialog->appendText(tr("%1").arg(msg.c_str()));
+											_progressDialog->appendText(tr("%1").arg(msg.c_str()));
 											QApplication::processEvents();
 											updateConstraint = false;
 										}
@@ -5264,7 +5310,7 @@ void MainWindow::postProcessing()
 
 										_currentLinksMap.insert(std::make_pair(from, Link(from, to, Link::kUserClosure, transform, info.covariance.inv())));
 										++loopClosuresAdded;
-										_initProgressDialog->appendText(tr("Detected loop closure %1->%2! (%3/%4)").arg(from).arg(to).arg(i+1).arg(clusters.size()));
+										_progressDialog->appendText(tr("Detected loop closure %1->%2! (%3/%4)").arg(from).arg(to).arg(i+1).arg(clusters.size()));
 									}
 								}
 							}
@@ -5272,9 +5318,9 @@ void MainWindow::postProcessing()
 					}
 				}
 				QApplication::processEvents();
-				_initProgressDialog->incrementStep();
+				_progressDialog->incrementStep();
 			}
-			_initProgressDialog->appendText(tr("Iteration %1/%2: Detected %3 loop closures!").arg(n+1).arg(detectLoopClosureIterations).arg(addedLinks.size()/2));
+			_progressDialog->appendText(tr("Iteration %1/%2: Detected %3 loop closures!").arg(n+1).arg(detectLoopClosureIterations).arg(addedLinks.size()/2));
 			if(addedLinks.size() == 0)
 			{
 				break;
@@ -5282,7 +5328,7 @@ void MainWindow::postProcessing()
 
 			if(n+1 < detectLoopClosureIterations)
 			{
-				_initProgressDialog->appendText(tr("Optimizing graph with new links (%1 nodes, %2 constraints)...")
+				_progressDialog->appendText(tr("Optimizing graph with new links (%1 nodes, %2 constraints)...")
 						.arg(odomPoses.size()).arg(_currentLinksMap.size()));
 				QApplication::processEvents();
 
@@ -5298,11 +5344,11 @@ void MainWindow::postProcessing()
 						linksOut);
 				optimizedPoses = optimizer->optimize(fromId, posesOut, linksOut);
 				_currentPosesMap = optimizedPoses;
-				_initProgressDialog->appendText(tr("Optimizing graph with new links... done!"));
+				_progressDialog->appendText(tr("Optimizing graph with new links... done!"));
 			}
 		}
 		UINFO("Added %d loop closures.", loopClosuresAdded);
-		_initProgressDialog->appendText(tr("Total new loop closures detected=%1").arg(loopClosuresAdded));
+		_progressDialog->appendText(tr("Total new loop closures detected=%1").arg(loopClosuresAdded));
 	}
 
 	if(!_progressCanceled && (refineNeighborLinks || refineLoopClosureLinks))
@@ -5310,10 +5356,10 @@ void MainWindow::postProcessing()
 		UDEBUG("");
 		if(refineLoopClosureLinks)
 		{
-			_initProgressDialog->setMaximumSteps(_initProgressDialog->maximumSteps()+loopClosuresAdded);
+			_progressDialog->setMaximumSteps(_progressDialog->maximumSteps()+loopClosuresAdded);
 		}
 		// TODO: support ICP from laser scans?
-		_initProgressDialog->appendText(tr("Refining links..."));
+		_progressDialog->appendText(tr("Refining links..."));
 		QApplication::processEvents();
 
 		RegistrationIcp regIcp(parameters);
@@ -5329,8 +5375,8 @@ void MainWindow::postProcessing()
 				int from = iter->second.from();
 				int to = iter->second.to();
 
-				_initProgressDialog->appendText(tr("Refining link %1->%2 (%3/%4)").arg(from).arg(to).arg(i+1).arg(_currentLinksMap.size()));
-				_initProgressDialog->incrementStep();
+				_progressDialog->appendText(tr("Refining link %1->%2 (%3/%4)").arg(from).arg(to).arg(i+1).arg(_currentLinksMap.size()));
+				_progressDialog->incrementStep();
 				QApplication::processEvents();
 
 				if(!_cachedSignatures.contains(from))
@@ -5364,7 +5410,7 @@ void MainWindow::postProcessing()
 						else
 						{
 							QString str = tr("Cannot refine link %1->%2 (%3").arg(from).arg(to).arg(info.rejectedMsg.c_str());
-							_initProgressDialog->appendText(str, Qt::darkYellow);
+							_progressDialog->appendText(str, Qt::darkYellow);
 							UWARN("%s", str.toStdString().c_str());
 							warn = true;
 						}
@@ -5381,17 +5427,17 @@ void MainWindow::postProcessing()
 							str = tr("Cannot refine link %1->%2 (scans empty!)").arg(from).arg(to);
 						}
 
-						_initProgressDialog->appendText(str, Qt::darkYellow);
+						_progressDialog->appendText(str, Qt::darkYellow);
 						UWARN("%s", str.toStdString().c_str());
 						warn = true;
 					}
 				}
 			}
 		}
-		_initProgressDialog->appendText(tr("Refining links...done!"));
+		_progressDialog->appendText(tr("Refining links...done!"));
 	}
 
-	_initProgressDialog->appendText(tr("Optimizing graph with updated links (%1 nodes, %2 constraints)...")
+	_progressDialog->appendText(tr("Optimizing graph with updated links (%1 nodes, %2 constraints)...")
 			.arg(odomPoses.size()).arg(_currentLinksMap.size()));
 
 	int fromId = optimizeFromGraphEnd?odomPoses.rbegin()->first:odomPoses.begin()->first;
@@ -5405,13 +5451,13 @@ void MainWindow::postProcessing()
 			posesOut,
 			linksOut);
 	optimizedPoses = optimizer->optimize(fromId, posesOut, linksOut);
-	_initProgressDialog->appendText(tr("Optimizing graph with updated links... done!"));
-	_initProgressDialog->incrementStep();
+	_progressDialog->appendText(tr("Optimizing graph with updated links... done!"));
+	_progressDialog->incrementStep();
 
 	if(!_progressCanceled && sba)
 	{
 		UASSERT(Optimizer::isAvailable(sbaType));
-		_initProgressDialog->appendText(tr("SBA (%1 nodes, %2 constraints, %3 iterations)...")
+		_progressDialog->appendText(tr("SBA (%1 nodes, %2 constraints, %3 iterations)...")
 					.arg(optimizedPoses.size()).arg(linksOut.size()).arg(sbaIterations));
 		QApplication::processEvents();
 		uSleep(100);
@@ -5426,17 +5472,17 @@ void MainWindow::postProcessing()
 		if(newPoses.size())
 		{
 			optimizedPoses = newPoses;
-			_initProgressDialog->appendText(tr("SBA... done!"));
+			_progressDialog->appendText(tr("SBA... done!"));
 		}
 		else
 		{
-			_initProgressDialog->appendText(tr("SBA... failed!"));
-			_initProgressDialog->setAutoClose(false);
+			_progressDialog->appendText(tr("SBA... failed!"));
+			_progressDialog->setAutoClose(false);
 		}
-		_initProgressDialog->incrementStep();
+		_progressDialog->incrementStep();
 	}
 
-	_initProgressDialog->appendText(tr("Updating map..."));
+	_progressDialog->appendText(tr("Updating map..."));
 	alignPosesToGroundTruth(optimizedPoses, _currentGTPosesMap);
 	this->updateMapCloud(
 			optimizedPoses,
@@ -5445,16 +5491,16 @@ void MainWindow::postProcessing()
 			std::map<int, std::string>(_currentLabels),
 			std::map<int, Transform>(_currentGTPosesMap),
 			false);
-	_initProgressDialog->appendText(tr("Updating map... done!"));
+	_progressDialog->appendText(tr("Updating map... done!"));
 
 	if(warn)
 	{
-		_initProgressDialog->setAutoClose(false);
+		_progressDialog->setAutoClose(false);
 	}
 
-	_initProgressDialog->setValue(_initProgressDialog->maximumSteps());
-	_initProgressDialog->appendText("Post-processing finished!");
-	_initProgressDialog->setCancelButtonVisible(false);
+	_progressDialog->setValue(_progressDialog->maximumSteps());
+	_progressDialog->appendText("Post-processing finished!");
+	_progressDialog->setCancelButtonVisible(false);
 	_progressCanceled = false;
 
 	delete optimizer;
@@ -5588,6 +5634,11 @@ void MainWindow::selectFreenect2()
 	_preferencesDialog->selectSourceDriver(PreferencesDialog::kSrcFreenect2);
 }
 
+void MainWindow::selectK4W2()
+{
+	_preferencesDialog->selectSourceDriver(PreferencesDialog::kSrcK4W2);
+}
+
 void MainWindow::selectRealSense()
 {
 	_preferencesDialog->selectSourceDriver(PreferencesDialog::kSrcRealSense);
@@ -5713,9 +5764,9 @@ void MainWindow::updateCacheFromDatabase(const QString & path)
 		if(driver->openConnection(path.toStdString()))
 		{
 			UINFO("Update cache...");
-			_initProgressDialog->resetProgress();
-			_initProgressDialog->show();
-			_initProgressDialog->appendText(tr("Downloading the map from \"%1\" (without poses and links)...")
+			_progressDialog->resetProgress();
+			_progressDialog->show();
+			_progressDialog->appendText(tr("Downloading the map from \"%1\" (without poses and links)...")
 					.arg(path));
 
 			std::set<int> ids;
@@ -5776,9 +5827,9 @@ void MainWindow::downloadAllClouds()
 		}
 
 		UINFO("Download clouds...");
-		_initProgressDialog->resetProgress();
-		_initProgressDialog->show();
-		_initProgressDialog->appendText(tr("Downloading the map (global=%1 ,optimized=%2)...")
+		_progressDialog->resetProgress();
+		_progressDialog->show();
+		_progressDialog->appendText(tr("Downloading the map (global=%1 ,optimized=%2)...")
 				.arg(global?"true":"false").arg(optimized?"true":"false"));
 		this->post(new RtabmapEventCmd(RtabmapEventCmd::kCmdPublish3DMap, global, optimized, false));
 	}
@@ -5820,9 +5871,9 @@ void MainWindow::downloadPoseGraph()
 		}
 
 		UINFO("Download the graph...");
-		_initProgressDialog->resetProgress();
-		_initProgressDialog->show();
-		_initProgressDialog->appendText(tr("Downloading the graph (global=%1 ,optimized=%2)...")
+		_progressDialog->resetProgress();
+		_progressDialog->show();
+		_progressDialog->appendText(tr("Downloading the graph (global=%1 ,optimized=%2)...")
 				.arg(global?"true":"false").arg(optimized?"true":"false"));
 
 		this->post(new RtabmapEventCmd(RtabmapEventCmd::kCmdPublish3DMap, global, optimized, true));
@@ -5890,9 +5941,9 @@ void MainWindow::clearTheCache()
 	_ui->imageView_source->clear();
 	_ui->imageView_loopClosure->clear();
 	_ui->imageView_odometry->clear();
-	_ui->imageView_source->setBackgroundColor(Qt::black);
-	_ui->imageView_loopClosure->setBackgroundColor(Qt::black);
-	_ui->imageView_odometry->setBackgroundColor(Qt::black);
+	_ui->imageView_source->setBackgroundColor(_ui->imageView_source->getDefaultBackgroundColor());
+	_ui->imageView_loopClosure->setBackgroundColor(_ui->imageView_loopClosure->getDefaultBackgroundColor());
+	_ui->imageView_odometry->setBackgroundColor(_ui->imageView_odometry->getDefaultBackgroundColor());
 #ifdef RTABMAP_OCTOMAP
 	// re-create one if the resolution has changed
 	UASSERT(_octomap != 0);
@@ -6043,6 +6094,16 @@ void MainWindow::selectScreenCaptureFormat(bool checked)
 				{
 					_ui->actionAuto_screen_capture->setChecked(false);
 				}
+
+				r = QMessageBox::question(this, tr("Save in JPEG?"), tr("Save in JPEG format? Otherwise they are saved in PNG."), QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+				if(r == QMessageBox::No || r == QMessageBox::Yes)
+				{
+					_autoScreenCapturePNG = r == QMessageBox::No;
+				}
+				else
+				{
+					_ui->actionAuto_screen_capture->setChecked(false);
+				}
 			}
 		}
 		else
@@ -6066,20 +6127,23 @@ void MainWindow::selectScreenCaptureFormat(bool checked)
 		}
 		targetDir += QDir::separator();
 
-		_initProgressDialog->resetProgress();
-		_initProgressDialog->show();
-		_initProgressDialog->setMaximumSteps(_autoScreenCaptureCachedImages.size());
+		_progressDialog->setCancelButtonVisible(true);
+		_progressDialog->resetProgress();
+		_progressDialog->show();
+		_progressDialog->setMaximumSteps(_autoScreenCaptureCachedImages.size());
 		int i=0;
-		for(QMap<QString, QByteArray>::iterator iter=_autoScreenCaptureCachedImages.begin(); iter!=_autoScreenCaptureCachedImages.end(); ++iter)
+		for(QMap<QString, QByteArray>::iterator iter=_autoScreenCaptureCachedImages.begin(); iter!=_autoScreenCaptureCachedImages.end() && !_progressDialog->isCanceled(); ++iter)
 		{
 			QPixmap figure;
-			figure.loadFromData(iter.value(), "PNG");
-			figure.save(targetDir + iter.key(), "PNG");
-			_initProgressDialog->appendText(tr("Saved image \"%1\" (%2/%3).").arg(targetDir + iter.key()).arg(++i).arg(_autoScreenCaptureCachedImages.size()));
-			_initProgressDialog->incrementStep();
+			figure.loadFromData(iter.value(), _autoScreenCapturePNG?"PNG":"JPEG");
+			figure.save(targetDir + iter.key(), _autoScreenCapturePNG?"PNG":"JPEG");
+			_progressDialog->appendText(tr("Saved image \"%1\" (%2/%3).").arg(targetDir + iter.key()).arg(++i).arg(_autoScreenCaptureCachedImages.size()));
+			_progressDialog->incrementStep();
+			QApplication::processEvents();
 		}
 		_autoScreenCaptureCachedImages.clear();
-		_initProgressDialog->setValue(_initProgressDialog->maximumSteps());
+		_progressDialog->setValue(_progressDialog->maximumSteps());
+		_progressDialog->setCancelButtonVisible(false);
 	}
 }
 
@@ -6460,9 +6524,9 @@ void MainWindow::exportImages()
 					tr("Data in the cache don't seem to have images (tested node %1). Calibration file will not be saved. Try refreshing the cache (with clouds).").arg(poses.rbegin()->first));
 		}
 
-		_initProgressDialog->resetProgress();
-		_initProgressDialog->show();
-		_initProgressDialog->setMaximumSteps(_cachedSignatures.size());
+		_progressDialog->resetProgress();
+		_progressDialog->show();
+		_progressDialog->setMaximumSteps(_cachedSignatures.size());
 
 		unsigned int saved = 0;
 		for(std::map<int, Transform>::iterator iter=poses.begin(); iter!=poses.end(); ++iter)
@@ -6499,22 +6563,22 @@ void MainWindow::exportImages()
 				warn = true;
 			}
 			saved += warn?0:1;
-			_initProgressDialog->appendText(info, !warn?Qt::black:Qt::darkYellow);
-			_initProgressDialog->incrementStep();
+			_progressDialog->appendText(info, !warn?Qt::black:Qt::darkYellow);
+			_progressDialog->incrementStep();
 			QApplication::processEvents();
 
 		}
 		if(saved!=poses.size())
 		{
-			_initProgressDialog->setAutoClose(false);
-			_initProgressDialog->appendText(tr("%1 images of %2 saved to \"%3\".").arg(saved).arg(poses.size()).arg(path));
+			_progressDialog->setAutoClose(false);
+			_progressDialog->appendText(tr("%1 images of %2 saved to \"%3\".").arg(saved).arg(poses.size()).arg(path));
 		}
 		else
 		{
-			_initProgressDialog->appendText(tr("%1 images saved to \"%2\".").arg(saved).arg(path));
+			_progressDialog->appendText(tr("%1 images saved to \"%2\".").arg(saved).arg(path));
 		}
 
-		_initProgressDialog->setValue(_initProgressDialog->maximumSteps());
+		_progressDialog->setValue(_progressDialog->maximumSteps());
 	}
 }
 
@@ -7046,6 +7110,7 @@ void MainWindow::changeState(MainWindow::State newState)
 		if(_camera)
 		{
 			_camera->start();
+			ULogger::setTreadIdFilter(_preferencesDialog->getGeneralLoggerThreads());
 		}
 		break;
 
@@ -7077,6 +7142,7 @@ void MainWindow::changeState(MainWindow::State newState)
 			if(_camera)
 			{
 				_camera->start();
+				ULogger::setTreadIdFilter(_preferencesDialog->getGeneralLoggerThreads());
 			}
 		}
 		else if(_state == kDetecting)

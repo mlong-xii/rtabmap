@@ -88,7 +88,9 @@ Memory::Memory(const ParametersMap & parameters) :
 	_imagePostDecimation(Parameters::defaultMemImagePostDecimation()),
 	_compressionParallelized(Parameters::defaultMemCompressionParallelized()),
 	_laserScanDownsampleStepSize(Parameters::defaultMemLaserScanDownsampleStepSize()),
+	_laserScanVoxelSize(Parameters::defaultMemLaserScanVoxelSize()),
 	_laserScanNormalK(Parameters::defaultMemLaserScanNormalK()),
+	_laserScanNormalRadius(Parameters::defaultMemLaserScanNormalRadius()),
 	_reextractLoopClosureFeatures(Parameters::defaultRGBDLoopClosureReextractFeatures()),
 	_rehearsalMaxDistance(Parameters::defaultRGBDLinearUpdate()),
 	_rehearsalMaxAngle(Parameters::defaultRGBDAngularUpdate()),
@@ -314,6 +316,15 @@ void Memory::loadDataFromDb(bool postInitClosingEvents)
 			UWARN("_vwd->getUnusedWordsSize() must be empty... size=%d", _vwd->getUnusedWordsSize());
 		}
 		UDEBUG("Total word references added = %d", _vwd->getTotalActiveReferences());
+
+		if(_lastSignature == 0)
+		{
+			// Memory is empty, save parameters
+			ParametersMap parameters = Parameters::getDefaultParameters();
+			uInsert(parameters, parameters_);
+			UDEBUG("");
+			_dbDriver->addInfoAfterRun(0, 0,	0, 0, 0, parameters);
+		}
 	}
 	else
 	{
@@ -439,7 +450,9 @@ void Memory::parseParameters(const ParametersMap & parameters)
 	Parameters::parse(parameters, Parameters::kMemImagePostDecimation(), _imagePostDecimation);
 	Parameters::parse(parameters, Parameters::kMemCompressionParallelized(), _compressionParallelized);
 	Parameters::parse(parameters, Parameters::kMemLaserScanDownsampleStepSize(), _laserScanDownsampleStepSize);
+	Parameters::parse(parameters, Parameters::kMemLaserScanVoxelSize(), _laserScanVoxelSize);
 	Parameters::parse(parameters, Parameters::kMemLaserScanNormalK(), _laserScanNormalK);
+	Parameters::parse(parameters, Parameters::kMemLaserScanNormalRadius(), _laserScanNormalRadius);
 	Parameters::parse(parameters, Parameters::kRGBDLoopClosureReextractFeatures(), _reextractLoopClosureFeatures);
 	Parameters::parse(parameters, Parameters::kRGBDLinearUpdate(), _rehearsalMaxDistance);
 	Parameters::parse(parameters, Parameters::kRGBDAngularUpdate(), _rehearsalMaxAngle);
@@ -1052,6 +1065,7 @@ std::map<int, int> Memory::getNeighborsId(
 		bool incrementMarginOnLoop, // default false
 		bool ignoreLoopIds, // default false
 		bool ignoreIntermediateNodes, // default false
+		const std::set<int> & nodesSet,
 		double * dbAccessTime
 		) const
 {
@@ -1081,7 +1095,7 @@ std::map<int, int> Memory::getNeighborsId(
 
 		for(std::list<int>::iterator jter = curentMarginList.begin(); jter!=curentMarginList.end(); ++jter)
 		{
-			if(ids.find(*jter) == ids.end())
+			if(ids.find(*jter) == ids.end() && (nodesSet.empty() || nodesSet.find(*jter) != nodesSet.end()))
 			{
 				//UDEBUG("Added %d with margin %d", *jter, m);
 				// Look up in STM/WM if all ids are here, if not... load them from the database
@@ -1171,6 +1185,7 @@ std::map<int, float> Memory::getNeighborsIdRadius(
 	UASSERT(uContains(optimizedPoses, signatureId));
 	UASSERT(signatureId > 0);
 	std::map<int, float> ids;
+	std::map<int, float> checkedIds;
 	std::list<int> curentMarginList;
 	std::set<int> currentMargin;
 	std::set<int> nextMargin;
@@ -1179,8 +1194,6 @@ std::map<int, float> Memory::getNeighborsIdRadius(
 	Transform referential = optimizedPoses.at(signatureId);
 	UASSERT(!referential.isNull());
 	float radiusSqrd = radius*radius;
-	std::map<int, float> savedRadius;
-	savedRadius.insert(std::make_pair(signatureId, 0));
 	while((maxGraphDepth == 0 || m < maxGraphDepth) && nextMargin.size())
 	{
 		curentMarginList = std::list<int>(nextMargin.begin(), nextMargin.end());
@@ -1188,7 +1201,7 @@ std::map<int, float> Memory::getNeighborsIdRadius(
 
 		for(std::list<int>::iterator jter = curentMarginList.begin(); jter!=curentMarginList.end(); ++jter)
 		{
-			if(ids.find(*jter) == ids.end())
+			if(checkedIds.find(*jter) == checkedIds.end())
 			{
 				//UDEBUG("Added %d with margin %d", *jter, m);
 				// Look up in STM/WM if all ids are here, if not... load them from the database
@@ -1197,7 +1210,13 @@ std::map<int, float> Memory::getNeighborsIdRadius(
 				const std::map<int, Link> * links = &tmpLinks;
 				if(s)
 				{
-					ids.insert(std::pair<int, float>(*jter, savedRadius.at(*jter)));
+					const Transform & t = optimizedPoses.at(*jter);
+					UASSERT(!t.isNull());
+					float distanceSqrd = referential.getDistanceSquared(t);
+					if(radiusSqrd == 0 || distanceSqrd<radiusSqrd)
+					{
+						ids.insert(std::pair<int, float>(*jter,distanceSqrd));
+					}
 
 					links = &s->getLinks();
 				}
@@ -1209,15 +1228,7 @@ std::map<int, float> Memory::getNeighborsIdRadius(
 						uContains(optimizedPoses, iter->first) &&
 						iter->second.type()!=Link::kVirtualClosure)
 					{
-						const Transform & t = optimizedPoses.at(iter->first);
-						UASSERT(!t.isNull());
-						float distanceSqrd = referential.getDistanceSquared(t);
-						if(radiusSqrd == 0 || distanceSqrd<radiusSqrd)
-						{
-							savedRadius.insert(std::make_pair(iter->first, distanceSqrd));
-							nextMargin.insert(iter->first);
-						}
-
+						nextMargin.insert(iter->first);
 					}
 				}
 			}
@@ -1271,6 +1282,7 @@ int Memory::getDatabaseMemoryUsed() const
 	{
 		memoryUsed = _dbDriver->getMemoryUsed()/(1024*1024); //Byte to MB
 	}
+
 	return memoryUsed;
 }
 
@@ -1397,6 +1409,7 @@ void Memory::clear()
 	_idMapCount = kIdStart;
 	_memoryChanged = false;
 	_linksChanged = false;
+	_gpsOrigin = GPS();
 
 	if(_dbDriver)
 	{
@@ -2119,6 +2132,25 @@ void Memory::deleteLocation(int locationId, std::list<int> * deletedWords)
 	}
 }
 
+void Memory::saveLocationData(int locationId)
+{
+	UDEBUG("Saving location data %d", locationId);
+	Signature * location = _getSignature(locationId);
+	if( location &&
+		_dbDriver &&
+		!_dbDriver->isInMemory() && // don't push in database if it is also in memory.
+		location->id()>0 &&
+		(_incrementalMemory && !location->isSaved()))
+	{
+		Signature * cpy = new Signature();
+		*cpy = *location;
+		_dbDriver->asyncSave(cpy);
+
+		location->setSaved(true);
+		location->sensorData().clearCompressedData();
+	}
+}
+
 void Memory::removeLink(int oldId, int newId)
 {
 	//this method assumes receiving oldId < newId, if not switch them
@@ -2365,7 +2397,7 @@ Transform Memory::computeIcpTransform(
 
 		if(depthsToLoad.size())
 		{
-			_dbDriver->loadNodeData(depthsToLoad);
+			_dbDriver->loadNodeData(depthsToLoad, false, true, false, false);
 		}
 	}
 
@@ -2404,6 +2436,18 @@ Transform Memory::computeIcpTransformMulti(
 	UASSERT(uContains(poses, toId) && uContains(_signatures, toId));
 
 	UDEBUG("Guess=%s", (poses.at(fromId).inverse() * poses.at(toId)).prettyPrint().c_str());
+	if(ULogger::level() == ULogger::kDebug)
+	{
+		std::string ids;
+		for(std::map<int, Transform>::const_iterator iter = poses.begin(); iter!=poses.end(); ++iter)
+		{
+			if(iter->first != fromId)
+			{
+				ids += uNumber2Str(iter->first) + " ";
+			}
+		}
+		UDEBUG("%d vs %s", fromId, ids.c_str());
+	}
 
 	// make sure that all laser scans are loaded
 	std::list<Signature*> depthToLoad;
@@ -2420,7 +2464,7 @@ Transform Memory::computeIcpTransformMulti(
 	}
 	if(depthToLoad.size() && _dbDriver)
 	{
-		_dbDriver->loadNodeData(depthToLoad);
+		_dbDriver->loadNodeData(depthToLoad, false, true, false, false);
 	}
 
 	Signature * fromS = _getSignature(fromId);
@@ -2432,10 +2476,12 @@ Transform Memory::computeIcpTransformMulti(
 	{
 		// Create a fake signature with all scans merged in oldId referential
 		SensorData assembledData;
-		Transform toPose = poses.at(toId);
+		Transform toPoseInv = poses.at(toId).inverse();
 		std::string msg;
 		int maxPoints = fromScan.cols;
 		pcl::PointCloud<pcl::PointXYZ>::Ptr assembledToClouds(new pcl::PointCloud<pcl::PointXYZ>);
+		pcl::PointCloud<pcl::PointNormal>::Ptr assembledToNormalClouds(new pcl::PointCloud<pcl::PointNormal>);
+		bool is2D = true;
 		for(std::map<int, Transform>::const_iterator iter = poses.begin(); iter!=poses.end(); ++iter)
 		{
 			if(iter->first != fromId)
@@ -2445,14 +2491,31 @@ Transform Memory::computeIcpTransformMulti(
 				{
 					cv::Mat scan;
 					s->sensorData().uncompressData(0, 0, &scan);
-					pcl::PointCloud<pcl::PointXYZ>::Ptr cloud = util3d::laserScanToPointCloud(
-							scan,
-							s->sensorData().laserScanInfo().localTransform() * toPose.inverse() * iter->second);
-					if(scan.cols > maxPoints)
+					if(!scan.empty())
 					{
-						maxPoints = scan.cols;
+						if(scan.channels() != 2 && scan.channels() != 5)
+						{
+							is2D = false;
+						}
+
+						if(scan.channels() >= 5)
+						{
+							*assembledToNormalClouds += *util3d::laserScanToPointCloudNormal(
+									scan,
+									toPoseInv * iter->second * s->sensorData().laserScanInfo().localTransform());
+						}
+						else
+						{
+							*assembledToClouds += *util3d::laserScanToPointCloud(
+									scan,
+									toPoseInv * iter->second * s->sensorData().laserScanInfo().localTransform());
+						}
+
+						if(scan.cols > maxPoints)
+						{
+							maxPoints = scan.cols;
+						}
 					}
-					*assembledToClouds += *cloud;
 				}
 				else
 				{
@@ -2460,18 +2523,24 @@ Transform Memory::computeIcpTransformMulti(
 				}
 			}
 		}
-		if(assembledToClouds->size())
+
+		cv::Mat assembledScan;
+		if(assembledToNormalClouds->size())
 		{
-			assembledData.setLaserScanRaw(
-					util3d::laserScanFromPointCloud(*assembledToClouds),
-					LaserScanInfo(
-							fromS->sensorData().laserScanInfo().maxPoints()?fromS->sensorData().laserScanInfo().maxPoints():maxPoints,
-							fromS->sensorData().laserScanInfo().maxRange(),
-							Transform::getIdentity())); // scans are in base frame
+			assembledScan = is2D?util3d::laserScan2dFromPointCloud(*assembledToNormalClouds):util3d::laserScanFromPointCloud(*assembledToNormalClouds);
 		}
+		else if(assembledToClouds->size())
+		{
+			assembledScan = is2D?util3d::laserScan2dFromPointCloud(*assembledToClouds):util3d::laserScanFromPointCloud(*assembledToClouds);
+		}
+		// scans are in base frame but for 2d scans, set the height so that correspondences matching works
+		assembledData.setLaserScanRaw(assembledScan,
+				LaserScanInfo(
+					fromS->sensorData().laserScanInfo().maxPoints()?fromS->sensorData().laserScanInfo().maxPoints():maxPoints,
+					fromS->sensorData().laserScanInfo().maxRange(),
+					is2D?Transform(0,0,fromS->sensorData().laserScanInfo().localTransform().z(),0,0,0):Transform::getIdentity()));
 
 		Transform guess = poses.at(fromId).inverse() * poses.at(toId);
-		std::vector<int> inliersV;
 		t = _registrationIcp->computeTransformation(fromS->sensorData(), assembledData, guess, info);
 	}
 
@@ -3007,7 +3076,8 @@ Transform Memory::getOdomPose(int signatureId, bool lookInDatabase) const
 	std::string label;
 	double stamp;
 	std::vector<float> velocity;
-	getNodeInfo(signatureId, pose, mapId, weight, label, stamp, groundTruth, velocity, lookInDatabase);
+	GPS gps;
+	getNodeInfo(signatureId, pose, mapId, weight, label, stamp, groundTruth, velocity, gps, lookInDatabase);
 	return pose;
 }
 
@@ -3018,7 +3088,8 @@ Transform Memory::getGroundTruthPose(int signatureId, bool lookInDatabase) const
 	std::string label;
 	double stamp;
 	std::vector<float> velocity;
-	getNodeInfo(signatureId, pose, mapId, weight, label, stamp, groundTruth, velocity, lookInDatabase);
+	GPS gps;
+	getNodeInfo(signatureId, pose, mapId, weight, label, stamp, groundTruth, velocity, gps, lookInDatabase);
 	return groundTruth;
 }
 
@@ -3030,6 +3101,7 @@ bool Memory::getNodeInfo(int signatureId,
 		double & stamp,
 		Transform & groundTruth,
 		std::vector<float> & velocity,
+		GPS & gps,
 		bool lookInDatabase) const
 {
 	const Signature * s = this->getSignature(signatureId);
@@ -3042,11 +3114,12 @@ bool Memory::getNodeInfo(int signatureId,
 		stamp = s->getStamp();
 		groundTruth = s->getGroundTruthPose();
 		velocity = s->getVelocity();
+		gps = s->sensorData().gps();
 		return true;
 	}
 	else if(lookInDatabase && _dbDriver)
 	{
-		return _dbDriver->getNodeInfo(signatureId, odomPose, mapId, weight, label, stamp, groundTruth, velocity);
+		return _dbDriver->getNodeInfo(signatureId, odomPose, mapId, weight, label, stamp, groundTruth, velocity, gps);
 	}
 	return false;
 }
@@ -3268,7 +3341,7 @@ Signature * Memory::createSignature(const SensorData & data, const Transform & p
 						data.depthOrRightRaw().rows,
 						data.depthOrRightRaw().type(),
 						CV_16UC1, CV_32FC1, CV_8UC1).c_str());
-	UASSERT(data.laserScanRaw().empty() || data.laserScanRaw().type() == CV_32FC2 || data.laserScanRaw().type() == CV_32FC3 || data.laserScanRaw().type() == CV_32FC(4) || data.laserScanRaw().type() == CV_32FC(6));
+	UASSERT(data.laserScanRaw().empty() || data.laserScanRaw().type() == CV_32FC2 || data.laserScanRaw().type() == CV_32FC3 || data.laserScanRaw().type() == CV_32FC(4) || data.laserScanRaw().type() == CV_32FC(5) || data.laserScanRaw().type() == CV_32FC(6) || data.laserScanRaw().type() == CV_32FC(7));
 
 	if(!data.depthOrRightRaw().empty() &&
 		data.cameraModels().size() == 0 &&
@@ -3718,13 +3791,41 @@ Signature * Memory::createSignature(const SensorData & data, const Transform & p
 		if(stats) stats->addStatistic(Statistics::kTimingMemScan_downsampling(), t*1000.0f);
 		UDEBUG("time downsampling scan = %fs", t);
 	}
-	if(!laserScan.empty() && _laserScanNormalK > 0 && laserScan.channels() == 3 && !isIntermediateNode)
+	if(!laserScan.empty() && _laserScanVoxelSize > 0.0f && !isIntermediateNode)
 	{
-		pcl::PointCloud<pcl::PointXYZ>::Ptr cloud = util3d::laserScanToPointCloud(laserScan);
-		float x,y,z;
-		data.laserScanInfo().localTransform().getTranslation(x,y,z);
-		pcl::PointCloud<pcl::Normal>::Ptr normals = util3d::computeNormals(cloud, _laserScanNormalK, Eigen::Vector3f(x,y,z));
-		laserScan = util3d::laserScanFromPointCloud(*cloud, *normals);
+		float pointsBeforeFiltering = laserScan.cols;
+		if(laserScan.channels() == 4 || laserScan.channels() == 7)
+		{
+			pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = util3d::laserScanToPointCloudRGB(laserScan);
+			cloud = util3d::voxelize(cloud, _laserScanVoxelSize);
+			laserScan = util3d::laserScanFromPointCloud(*cloud);
+		}
+		else
+		{
+			pcl::PointCloud<pcl::PointXYZ>::Ptr cloud = util3d::laserScanToPointCloud(laserScan);
+			cloud = util3d::voxelize(cloud, _laserScanVoxelSize);
+			if(laserScan.channels() == 2 || laserScan.channels() == 5)
+			{
+				laserScan = util3d::laserScan2dFromPointCloud(*cloud);
+			}
+			else
+			{
+				laserScan = util3d::laserScanFromPointCloud(*cloud);
+			}
+		}
+		float ratio = float(laserScan.cols) / pointsBeforeFiltering;
+		maxLaserScanMaxPts = int(float(maxLaserScanMaxPts) * ratio);
+
+		t = timer.ticks();
+		if(stats) stats->addStatistic(Statistics::kTimingMemScan_voxel_filtering(), t*1000.0f);
+		UDEBUG("time voxel filtering scan = %fs", t);
+	}
+	if(!laserScan.empty() &&
+		(_laserScanNormalK > 0 || _laserScanNormalRadius>0.0f) &&
+		laserScan.channels() > 1 && laserScan.channels() < 5 &&
+		!isIntermediateNode)
+	{
+		laserScan = util3d::computeNormals(laserScan, _laserScanNormalK, _laserScanNormalRadius);
 		t = timer.ticks();
 		if(stats) stats->addStatistic(Statistics::kTimingMemScan_normals(), t*1000.0f);
 		UDEBUG("time normals scan = %fs", t);
@@ -3891,6 +3992,7 @@ Signature * Memory::createSignature(const SensorData & data, const Transform & p
 	s->sensorData().setUserDataRaw(data.userDataRaw());
 
 	s->sensorData().setGroundTruth(data.groundTruth());
+	s->sensorData().setGPS(data.gps());
 
 	t = timer.ticks();
 	if(stats) stats->addStatistic(Statistics::kTimingMemCompressing_data(), t*1000.0f);
@@ -3916,9 +4018,39 @@ Signature * Memory::createSignature(const SensorData & data, const Transform & p
 	s->sensorData().setOccupancyGrid(ground, obstacles, cellSize, viewPoint);
 
 	// prior
-	if(!isIntermediateNode && !data.globalPose().isNull() && data.globalPoseCovariance().cols==6 && data.globalPoseCovariance().rows==6 && data.globalPoseCovariance().cols==CV_64FC1)
+	if(!isIntermediateNode)
 	{
-		s->addLink(Link(s->id(), s->id(), Link::kPosePrior, data.globalPose(), data.globalPoseCovariance().inv()));
+		if(!data.globalPose().isNull() && data.globalPoseCovariance().cols==6 && data.globalPoseCovariance().rows==6 && data.globalPoseCovariance().cols==CV_64FC1)
+		{
+			s->addLink(Link(s->id(), s->id(), Link::kPosePrior, data.globalPose(), data.globalPoseCovariance().inv()));
+
+			/*if(data.gps().stamp() > 0.0)
+			{
+				UWARN("GPS constraint ignored as global pose is also set.");
+			}*/
+		}
+		else if(data.gps().stamp() > 0.0)
+		{
+			// TODO: What kind of covariance should we set to have decent gtsam and g2o results!?
+			/*if(_gpsOrigin.stamp() <= 0.0)
+			{
+				_gpsOrigin =  data.gps();
+			}
+			cv::Point3f pt = data.gps().toGeodeticCoords().toENU_WGS84(_gpsOrigin.toGeodeticCoords());
+			Transform gpsPose(pt.x, pt.y, pose.z(), 0, 0, -(data.gps().bearing()-90.0)*180.0/M_PI);
+			cv::Mat gpsInfMatrix = cv::Mat::eye(6,6,CV_64FC1)*0.00000001;
+			if(data.gps().error() > 0.0)
+			{
+				// only set x, y as we don't know variance for other degrees of freedom.
+				gpsInfMatrix.at<double>(0,0) = gpsInfMatrix.at<double>(1,1) = 0.1;
+				gpsInfMatrix.at<double>(2,2) = 100000;
+				s->addLink(Link(s->id(), s->id(), Link::kPosePrior, gpsPose, gpsInfMatrix));
+			}
+			else
+			{
+				UERROR("Invalid GPS error value (%f m), must be > 0 m.", data.gps().error());
+			}*/
+		}
 	}
 
 	return s;

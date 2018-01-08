@@ -127,6 +127,7 @@ public:
 			bool incrementMarginOnLoop = false,
 			bool ignoreLoopIds = false,
 			bool ignoreIntermediateNodes = false,
+			const std::set<int> & nodesSet = std::set<int>(),
 			double * dbAccessTime = 0) const;
 	std::map<int, float> getNeighborsIdRadius(
 			int signatureId,
@@ -134,6 +135,7 @@ public:
 			const std::map<int, Transform> & optimizedPoses,
 			int maxGraphDepth) const;
 	void deleteLocation(int locationId, std::list<int> * deletedWords = 0);
+	void saveLocationData(int locationId);
 	void removeLink(int idA, int idB);
 	void removeRawData(int id, bool image = true, bool scan = true, bool userData = true);
 
@@ -177,6 +179,7 @@ public:
 			double & stamp,
 			Transform & groundTruth,
 			std::vector<float> & velocity,
+			GPS & gps,
 			bool lookInDatabase = false) const;
 	cv::Mat getImageCompressed(int signatureId) const;
 	SensorData getNodeData(int nodeId, bool uncompressedData = false) const;
@@ -282,7 +285,9 @@ private:
 	int _imagePostDecimation;
 	bool _compressionParallelized;
 	float _laserScanDownsampleStepSize;
+	float _laserScanVoxelSize;
 	int _laserScanNormalK;
+	int _laserScanNormalRadius;
 	bool _reextractLoopClosureFeatures;
 	float _rehearsalMaxDistance;
 	float _rehearsalMaxAngle;
@@ -298,6 +303,7 @@ private:
 	bool _memoryChanged; // False by default, become true only when Memory::update() is called.
 	bool _linksChanged; // False by default, become true when links are modified.
 	int _signaturesAdded;
+	GPS _gpsOrigin;
 
 	std::map<int, Signature *> _signatures; // TODO : check if a signature is already added? although it is not supposed to occur...
 	std::set<int> _stMem; // id

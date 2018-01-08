@@ -211,6 +211,7 @@ private:
 	bool _publishLastSignatureData;
 	bool _publishPdf;
 	bool _publishLikelihood;
+	bool _computeRMSE;
 	float _maxTimeAllowed; // in ms
 	unsigned int _maxMemoryAllowed; // signatures count in WM
 	float _loopThr;
@@ -225,6 +226,8 @@ private:
 	bool _rgbdSlamMode;
 	float _rgbdLinearUpdate;
 	float _rgbdAngularUpdate;
+	float _rgbdLinearSpeedUpdate;
+	float _rgbdAngularSpeedUpdate;
 	float _newMapOdomChangeDistance;
 	bool _neighborLinkRefining;
 	bool _proximityByTime;
@@ -291,6 +294,5 @@ private:
 
 };
 
-#endif /* RTABMAP_H_ */
-
 } // namespace rtabmap
+#endif /* RTABMAP_H_ */

@@ -11,6 +11,8 @@ SET(SRC_FILES
 	DBDriverSqlite3.cpp
 	DBReader.cpp
 	
+	Recovery.cpp
+	
     Camera.cpp
     CameraThread.cpp
     CameraRGB.cpp
@@ -94,6 +96,14 @@ SET(SRC_FILES
 )
 ENDIF(OpenCV_VERSION_MAJOR EQUAL 2)
 
+# to get includes in visual studio
+IF(MSVC)
+    FILE(GLOB HEADERS
+       ../include/${PROJECT_PREFIX}/core/*.h
+    )
+    SET(SRC_FILES ${SRC_FILES} ${HEADERS})
+ENDIF(MSVC)
+
 SET(INCLUDE_DIRS
     ${PROJECT_SOURCE_DIR}/utilite/include
 	${CMAKE_CURRENT_SOURCE_DIR}/../include
@@ -145,6 +155,17 @@ IF(freenect2_FOUND)
 		${freenect2_LIBRARIES}
 	)
 ENDIF(freenect2_FOUND)
+
+IF(KinectSDK2_FOUND)
+	SET(INCLUDE_DIRS
+		${INCLUDE_DIRS}
+		${KinectSDK2_INCLUDE_DIRS}
+	)
+	SET(LIBRARIES
+		${LIBRARIES}
+		${KinectSDK2_LIBRARIES}
+	)
+ENDIF(KinectSDK2_FOUND)
 
 IF(RealSense_FOUND)
 	SET(INCLUDE_DIRS
@@ -325,12 +346,12 @@ ENDIF(dvo_core_FOUND)
 
 IF(ORB_SLAM2_FOUND)
     SET(INCLUDE_DIRS
+        ${ORB_SLAM2_INCLUDE_DIRS} #before so that g2o includes are taken from ORB_SLAM2 directory before the official g2o one
 		${INCLUDE_DIRS}
-		${ORB_SLAM2_INCLUDE_DIRS}
 	)
 	SET(LIBRARIES
+	    ${ORB_SLAM2_LIBRARIES}
 		${LIBRARIES}
-		${ORB_SLAM2_LIBRARIES}
 	)
 ENDIF(ORB_SLAM2_FOUND)
 

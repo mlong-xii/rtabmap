@@ -254,6 +254,15 @@ std::map<std::string, float> DBDriver::getStatistics(int nodeId, double & stamp)
 	return statistics;
 }
 
+std::map<int, std::pair<std::map<std::string, float>, double> > DBDriver::getAllStatistics() const
+{
+	std::map<int, std::pair<std::map<std::string, float>, double> > statistics;
+	_dbSafeAccessMutex.lock();
+	statistics = getAllStatisticsQuery();
+	_dbSafeAccessMutex.unlock();
+	return statistics;
+}
+
 std::string DBDriver::getDatabaseVersion() const
 {
 	std::string version = "0.0.0";
@@ -386,7 +395,7 @@ void DBDriver::asyncSave(VisualWord * vw)
 	}
 }
 
-void DBDriver::saveOrUpdate(const std::vector<Signature *> & signatures) const
+void DBDriver::saveOrUpdate(const std::vector<Signature *> & signatures)
 {
 	ULOGGER_DEBUG("");
 	std::list<Signature *> toSave;
@@ -712,7 +721,8 @@ bool DBDriver::getNodeInfo(
 		std::string & label,
 		double & stamp,
 		Transform & groundTruthPose,
-		std::vector<float> & velocity) const
+		std::vector<float> & velocity,
+		GPS & gps) const
 {
 	bool found = false;
 	// look in the trash
@@ -725,6 +735,7 @@ bool DBDriver::getNodeInfo(
 		label = _trashSignatures.at(signatureId)->getLabel();
 		stamp = _trashSignatures.at(signatureId)->getStamp();
 		groundTruthPose = _trashSignatures.at(signatureId)->getGroundTruthPose();
+		gps = _trashSignatures.at(signatureId)->sensorData().gps();
 		found = true;
 	}
 	_trashesMutex.unlock();
@@ -732,7 +743,7 @@ bool DBDriver::getNodeInfo(
 	if(!found)
 	{
 		_dbSafeAccessMutex.lock();
-		found = this->getNodeInfoQuery(signatureId, pose, mapId, weight, label, stamp, groundTruthPose, velocity);
+		found = this->getNodeInfoQuery(signatureId, pose, mapId, weight, label, stamp, groundTruthPose, velocity, gps);
 		_dbSafeAccessMutex.unlock();
 	}
 	return found;

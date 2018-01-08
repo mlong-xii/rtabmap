@@ -25,70 +25,63 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef POSTPROCESSINGDIALOG_H_
-#define POSTPROCESSINGDIALOG_H_
+#include <rtabmap/core/Recovery.h>
+#include <rtabmap/core/ProgressState.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 
-#include <QDialog>
-#include <QtCore/QSettings>
+using namespace rtabmap;
 
-#include <rtabmap/core/Optimizer.h>
-
-class Ui_PostProcessingDialog;
-class QAbstractButton;
-
-namespace rtabmap {
-
-class PostProcessingDialog : public QDialog
+void showUsage()
 {
-	Q_OBJECT
-
-public:
-	PostProcessingDialog(QWidget * parent = 0);
-
-	virtual ~PostProcessingDialog();
-
-	void saveSettings(QSettings & settings, const QString & group = "") const;
-	void loadSettings(QSettings & settings, const QString & group = "");
-
-	//getters
-	bool isDetectMoreLoopClosures() const;
-	double clusterRadius() const;
-	double clusterAngle() const;
-	int iterations() const;
-	bool isRefineNeighborLinks() const;
-	bool isRefineLoopClosureLinks() const;
-	bool isSBA() const;
-	int sbaIterations() const;
-	double sbaVariance() const;
-	Optimizer::Type sbaType() const;
-
-	//setters
-	void setDetectMoreLoopClosures(bool on);
-	void setClusterRadius(double radius);
-	void setClusterAngle(double angle);
-	void setIterations(int iterations);
-	void setRefineNeighborLinks(bool on);
-	void setRefineLoopClosureLinks(bool on);
-	void setSBA(bool on);
-	void setSBAIterations(int iterations);
-	void setSBAVariance(double variance);
-	void setSBAType(Optimizer::Type type);
-
-signals:
-	void configChanged();
-
-public slots:
-	void restoreDefaults();
-
-private slots:
-	void updateVisibility();
-	void updateButtonBox();
-
-
-private:
-	Ui_PostProcessingDialog * _ui;
-};
-
+	printf("\nUsage:\n"
+			"rtabmap-recovery [-d] \"my_corrupted_map.db\""
+			"  Options:\n"
+			"     -d        Delete database backup on success (\"*.backup.db\").\n"
+			"\n");
+	exit(1);
 }
 
-#endif /* POSTPROCESSINGDIALOG_H_ */
+class RecoveryProgressState: public ProgressState
+{
+	virtual bool callback(const std::string & msg) const
+	{
+		if(!msg.empty())
+			printf("%s\n", msg.c_str());
+		return true;
+	}
+};
+
+int main(int argc, char * argv[])
+{
+	ULogger::setType(ULogger::kTypeConsole);
+	ULogger::setLevel(ULogger::kError);
+
+	if(argc < 2)
+	{
+		showUsage();
+	}
+
+	bool keepBackup = true;
+	for(int i=1; i<argc; ++i)
+	{
+		if(strcmp(argv[i], "-d") == 0)
+		{
+			keepBackup = false;
+		}
+	}
+
+	std::string databasePath = argv[argc-1];
+
+	RecoveryProgressState state;
+	std::string errorMsg;
+	printf("Recovering \"%s\"\n", databasePath.c_str());
+	if(!databaseRecovery(databasePath, keepBackup, &errorMsg, &state))
+	{
+		printf("Error: %s\n", errorMsg.c_str());
+		return 1;
+	}
+
+	return 0;
+}

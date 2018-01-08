@@ -41,6 +41,7 @@ public:
 	virtual ~DBDriverSqlite3();
 
 	virtual void parseParameters(const ParametersMap & parameters);
+	virtual bool isInMemory() const {return getUrl().empty() || _dbInMemory;}
 	void setDbInMemory(bool dbInMemory);
 	void setJournalMode(int journalMode);
 	void setCacheSize(unsigned int cacheSize);
@@ -70,12 +71,13 @@ private:
 	virtual int getTotalDictionarySizeQuery() const;
 	virtual ParametersMap getLastParametersQuery() const;
 	virtual std::map<std::string, float> getStatisticsQuery(int nodeId, double & stamp) const;
+	virtual std::map<int, std::pair<std::map<std::string, float>, double> > getAllStatisticsQuery() const;
 
 	virtual void executeNoResultQuery(const std::string & sql) const;
 
 	virtual void getWeightQuery(int signatureId, int & weight) const;
 
-	virtual void saveQuery(const std::list<Signature *> & signatures) const;
+	virtual void saveQuery(const std::list<Signature *> & signatures);
 	virtual void saveQuery(const std::list<VisualWord *> & words) const;
 	virtual void updateQuery(const std::list<Signature *> & signatures, bool updateTimestamp) const;
 	virtual void updateQuery(const std::list<VisualWord *> & words, bool updateTimestamp) const;
@@ -127,7 +129,7 @@ private:
 	virtual void loadNodeDataQuery(std::list<Signature *> & signatures, bool images=true, bool scan=true, bool userData=true, bool occupancyGrid=true) const;
 	virtual bool getCalibrationQuery(int signatureId, std::vector<CameraModel> & models, StereoCameraModel & stereoModel) const;
 	virtual bool getLaserScanInfoQuery(int signatureId, LaserScanInfo & info) const;
-	virtual bool getNodeInfoQuery(int signatureId, Transform & pose, int & mapId, int & weight, std::string & label, double & stamp, Transform & groundTruthPose, std::vector<float> & velocity) const;
+	virtual bool getNodeInfoQuery(int signatureId, Transform & pose, int & mapId, int & weight, std::string & label, double & stamp, Transform & groundTruthPose, std::vector<float> & velocity, GPS & gps) const;
 	virtual void getAllNodeIdsQuery(std::set<int> & ids, bool ignoreChildren, bool ignoreBadSignatures) const;
 	virtual void getAllLinksQuery(std::multimap<int, Link> & links, bool ignoreNullLinks) const;
 	virtual void getLastIdQuery(const std::string & tableName, int & id) const;
@@ -170,6 +172,7 @@ private:
 
 private:
 	sqlite3 * _ppDb;
+	long _memoryUsedEstimate;
 	std::string _version;
 	bool _dbInMemory;
 	unsigned int _cacheSize;

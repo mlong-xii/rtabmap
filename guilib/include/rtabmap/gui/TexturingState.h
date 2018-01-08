@@ -25,60 +25,56 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef GUILIB_SRC_DEPTHCALIBRATIONDIALOG_H_
-#define GUILIB_SRC_DEPTHCALIBRATIONDIALOG_H_
 
-#include <QDialog>
-#include <QMap>
-#include <QtCore/QSettings>
-#include <rtabmap/core/Signature.h>
-#include <rtabmap/core/Parameters.h>
+#ifndef RTABMAP_TEXTURINGSTATE_H_
+#define RTABMAP_TEXTURINGSTATE_H_
 
-class Ui_DepthCalibrationDialog;
-
-namespace clams {
-class DiscreteDepthDistortionModel;
-}
+#include "rtabmap/gui/ProgressDialog.h"
+#include "rtabmap/core/ProgressState.h"
+#include <QApplication>
 
 namespace rtabmap {
 
-class ProgressDialog;
-
-class DepthCalibrationDialog : public QDialog
+class TexturingState : public QObject, public ProgressState
 {
 	Q_OBJECT
 
 public:
-	DepthCalibrationDialog(QWidget * parent = 0);
-	virtual ~DepthCalibrationDialog();
-
-	void saveSettings(QSettings & settings, const QString & group = "") const;
-	void loadSettings(QSettings & settings, const QString & group = "");
-
-	void calibrate(const std::map<int, Transform> & poses,
-			const QMap<int, Signature> & cachedSignatures,
-			const QString & workingDirectory,
-			const ParametersMap & parameters);
-
-signals:
-	void configChanged();
+	TexturingState(ProgressDialog * dialog, bool incrementOnMsgReceived): dialog_(dialog)
+	{
+		_increment = incrementOnMsgReceived;
+		connect(dialog_, SIGNAL(canceled()), this, SLOT(cancel()));
+	}
+	virtual ~TexturingState() {}
+	virtual bool callback(const std::string & msg) const
+	{
+		if(!msg.empty())
+		{
+			dialog_->appendText(msg.c_str());
+			if(_increment)
+			{
+				dialog_->incrementStep();
+			}
+		}
+		QApplication::processEvents();
+		if(!isCanceled())
+		{
+			return ProgressState::callback(msg);
+		}
+		return false;
+	}
 
 public slots:
-	void restoreDefaults();
-
-private slots:
-	void saveModel();
-	void cancel();
+	void cancel()
+	{
+		setCanceled(true);
+	}
 
 private:
-	Ui_DepthCalibrationDialog * _ui;
-	ProgressDialog * _progressDialog;
-	bool _canceled;
-	clams::DiscreteDepthDistortionModel * _model;
-	QString _workingDirectory;
-	cv::Size _imageSize;
+	ProgressDialog * dialog_;
+	bool _increment;
 };
 
-} /* namespace rtabmap */
+}
 
-#endif /* GUILIB_SRC_DEPTHCALIBRATIONDIALOG_H_ */
+#endif /* GUILIB_SRC_TEXTURINGSTATE_H_ */

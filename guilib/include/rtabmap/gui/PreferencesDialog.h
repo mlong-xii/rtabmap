@@ -25,8 +25,8 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef PREFERENCESDIALOG_H_
-#define PREFERENCESDIALOG_H_
+#ifndef RTABMAP_PREFERENCESDIALOG_H_
+#define RTABMAP_PREFERENCESDIALOG_H_
 
 #include "rtabmap/gui/RtabmapGuiExp.h" // DLL export/import defines
 
@@ -91,6 +91,7 @@ public:
 		kSrcFreenect2      = 5,
 		kSrcRealSense      = 6,
 		kSrcRGBDImages     = 7,
+		kSrcK4W2           = 8,
 
 		kSrcStereo         = 100,
 		kSrcDC1394         = 100,
@@ -116,6 +117,7 @@ public:
 	virtual QString getTmpIniFilePath() const;
 	void init();
 	void setCurrentPanelToSource();
+	virtual QString getDefaultWorkingDirectory() const;
 
 	// save stuff
 	void saveSettings();
@@ -164,9 +166,11 @@ public:
 	double getCeilingFilteringHeight() const;
 	double getFloorFilteringHeight() const;
 	int getNormalKSearch() const;
+	double getNormalRadiusSearch() const;
 	double getScanCeilingFilteringHeight() const;
 	double getScanFloorFilteringHeight() const;
 	int getScanNormalKSearch() const;
+	double getScanNormalRadiusSearch() const;
 	bool isCloudsShown(int index) const;      // 0=map, 1=odom
 	bool isOctomapUpdated() const;
 	bool isOctomapShown() const;
@@ -241,6 +245,7 @@ public:
 	double getSourceScanFromDepthMaxDepth() const;
 	double getSourceScanVoxelSize() const;
 	int getSourceScanNormalsK() const;
+	double getSourceScanNormalsRadius() const;
 	Transform getSourceLocalTransform() const;    //Openni group
 	Transform getLaserLocalTransform() const; // directory images
 	Camera * createCamera(bool useRawImages = false, bool useColor = true); // return camera should be deleted if not null
@@ -298,7 +303,6 @@ private slots:
 	void addParameter(double value);
 	void addParameter(const QString & value);
 	void updatePredictionPlot();
-	void updateOdometryVisibility();
 	void updateKpROI();
 	void updateStereoDisparityVisibility();
 	void useOdomFeatures();

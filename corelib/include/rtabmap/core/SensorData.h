@@ -34,6 +34,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <rtabmap/core/StereoCameraModel.h>
 #include <rtabmap/core/Transform.h>
 #include <rtabmap/core/LaserScanInfo.h>
+#include <rtabmap/core/GeodeticCoords.h>
 #include <opencv2/core/core.hpp>
 #include <opencv2/features2d/features2d.hpp>
 
@@ -225,7 +226,14 @@ public:
 	const Transform & globalPose() const {return globalPose_;}
 	const cv::Mat & globalPoseCovariance() const {return globalPoseCovariance_;}
 
+	void setGPS(const GPS & gps)
+	{
+		gps_ = gps;
+	}
+	const GPS & gps() const {return gps_;}
+
 	long getMemoryUsed() const; // Return memory usage in Bytes
+	void clearCompressedData() {_imageCompressed=cv::Mat(); _depthOrRightCompressed=cv::Mat(); _laserScanCompressed=cv::Mat(); _userDataCompressed=cv::Mat();}
 
 private:
 	int _id;
@@ -265,6 +273,8 @@ private:
 
 	Transform globalPose_;
 	cv::Mat globalPoseCovariance_; // 6x6 double
+
+	GPS gps_;
 };
 
 }

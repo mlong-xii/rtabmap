@@ -111,7 +111,14 @@ private:
 			{
 				_placeHolder = new QGraphicsRectItem (this);
 				_placeHolder->setVisible(false);
-				_placeHolder->setBrush(QBrush(QColor ( 0, 0, 0, 170 ))); // Black transparent background
+				if(qGray(pen().color().rgb() > 255/2))
+				{
+					_placeHolder->setBrush(QBrush(QColor ( 0,0,0, 170 )));
+				}
+				else
+				{
+					_placeHolder->setBrush(QBrush(QColor ( 255, 255, 255, 170 )));
+				}
 				QGraphicsTextItem * text = new QGraphicsTextItem(_placeHolder);
 				text->setDefaultTextColor(this->pen().color().rgb());
 				text->setPlainText(_text);
@@ -148,6 +155,7 @@ ImageView::ImageView(QWidget * parent) :
 		QWidget(parent),
 		_savedFileName((QDir::homePath()+ "/") + "picture" + ".png"),
 		_alpha(50),
+		_defaultBgColor(Qt::black),
 		_imageItem(0),
 		_imageDepthItem(0)
 {
@@ -202,6 +210,7 @@ void ImageView::saveSettings(QSettings & settings, const QString & group) const
 	settings.setValue("features_shown", this->isFeaturesShown());
 	settings.setValue("lines_shown", this->isLinesShown());
 	settings.setValue("alpha", this->getAlpha());
+	settings.setValue("bg_color", this->getDefaultBackgroundColor());
 	settings.setValue("graphics_view", this->isGraphicsViewMode());
 	settings.setValue("graphics_view_scale", this->isGraphicsViewScaled());
 	if(!group.isEmpty())
@@ -221,6 +230,7 @@ void ImageView::loadSettings(QSettings & settings, const QString & group)
 	this->setFeaturesShown(settings.value("features_shown", this->isFeaturesShown()).toBool());
 	this->setLinesShown(settings.value("lines_shown", this->isLinesShown()).toBool());
 	this->setAlpha(settings.value("alpha", this->getAlpha()).toInt());
+	this->setDefaultBackgroundColor(settings.value("bg_color", this->getDefaultBackgroundColor()).value<QColor>());
 	this->setGraphicsViewMode(settings.value("graphics_view", this->isGraphicsViewMode()).toBool());
 	this->setGraphicsViewScaled(settings.value("graphics_view_scale", this->isGraphicsViewScaled()).toBool());
 	if(!group.isEmpty())
@@ -257,6 +267,11 @@ bool ImageView::isGraphicsViewMode() const
 bool ImageView::isGraphicsViewScaled() const
 {
 	return _graphicsViewScaled->isChecked();
+}
+
+const QColor & ImageView::getDefaultBackgroundColor() const
+{
+	return _defaultBgColor;
 }
 
 const QColor & ImageView::getBackgroundColor() const
@@ -414,6 +429,12 @@ void ImageView::setGraphicsViewScaled(bool scaled)
 	{
 		this->update();
 	}
+}
+
+void ImageView::setDefaultBackgroundColor(const QColor & color)
+{
+	_defaultBgColor = color;
+	setBackgroundColor(color);
 }
 
 void ImageView::setBackgroundColor(const QColor & color)

@@ -77,7 +77,10 @@ class RTABMAP_EXP Statistics
 
 	RTABMAP_STATS(NeighborLinkRefining, Accepted,);
 	RTABMAP_STATS(NeighborLinkRefining, Inliers,);
-	RTABMAP_STATS(NeighborLinkRefining, Inliers_ratio,);
+	RTABMAP_STATS(NeighborLinkRefining, ICP_inliers_ratio,);
+	RTABMAP_STATS(NeighborLinkRefining, ICP_rotation, rad);
+	RTABMAP_STATS(NeighborLinkRefining, ICP_translation, m);
+	RTABMAP_STATS(NeighborLinkRefining, ICP_complexity,);
 	RTABMAP_STATS(NeighborLinkRefining, Variance,);
 	RTABMAP_STATS(NeighborLinkRefining, Pts,);
 
@@ -95,6 +98,7 @@ class RTABMAP_EXP Statistics
 	RTABMAP_STATS(Memory, Rehearsal_merged,);
 	RTABMAP_STATS(Memory, Local_graph_size,);
 	RTABMAP_STATS(Memory, Small_movement,);
+	RTABMAP_STATS(Memory, Fast_movement,);
 	RTABMAP_STATS(Memory, Odometry_variance_ang,);
 	RTABMAP_STATS(Memory, Odometry_variance_lin,);
 	RTABMAP_STATS(Memory, Distance_travelled, m);
@@ -131,12 +135,26 @@ class RTABMAP_EXP Statistics
 	RTABMAP_STATS(TimingMem, Compressing_data, ms);
 	RTABMAP_STATS(TimingMem, Post_decimation, ms);
 	RTABMAP_STATS(TimingMem, Scan_downsampling, ms);
+	RTABMAP_STATS(TimingMem, Scan_voxel_filtering, ms);
 	RTABMAP_STATS(TimingMem, Scan_normals, ms);
 	RTABMAP_STATS(TimingMem, Occupancy_grid, ms);
 
 	RTABMAP_STATS(Keypoint, Dictionary_size, words);
 	RTABMAP_STATS(Keypoint, Indexed_words, words);
 	RTABMAP_STATS(Keypoint, Index_memory_usage, KB);
+
+	RTABMAP_STATS(Gt, Translational_rmse, m);
+	RTABMAP_STATS(Gt, Translational_mean, m);
+	RTABMAP_STATS(Gt, Translational_median, m);
+	RTABMAP_STATS(Gt, Translational_std, m);
+	RTABMAP_STATS(Gt, Translational_min, m);
+	RTABMAP_STATS(Gt, Translational_max, m);
+	RTABMAP_STATS(Gt, Rotational_rmse, deg);
+	RTABMAP_STATS(Gt, Rotational_mean, deg);
+	RTABMAP_STATS(Gt, Rotational_median, deg);
+	RTABMAP_STATS(Gt, Rotational_std, deg);
+	RTABMAP_STATS(Gt, Rotational_min, deg);
+	RTABMAP_STATS(Gt, Rotational_max, deg);
 
 public:
 	static const std::map<std::string, float> & defaultData();

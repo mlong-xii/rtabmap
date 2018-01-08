@@ -102,7 +102,8 @@ Odometry::Odometry(const rtabmap::ParametersMap & parameters) :
 		_pose(Transform::getIdentity()),
 		_resetCurrentCount(0),
 		previousStamp_(0),
-		distanceTravelled_(0)
+		distanceTravelled_(0),
+		framesProcessed_(0)
 {
 	Parameters::parse(parameters, Parameters::kOdomResetCountdown(), _resetCountdown);
 
@@ -168,6 +169,7 @@ void Odometry::reset(const Transform & initialPose)
 	_resetCurrentCount = 0;
 	previousStamp_ = 0;
 	distanceTravelled_ = 0;
+	framesProcessed_ = 0;
 	if(_force3DoF || particleFilters_.size())
 	{
 		float x,y,z, roll,pitch,yaw;
@@ -233,11 +235,11 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 			UTimer alignTimer;
 			pcl::IndicesPtr indices(new std::vector<int>);
 			pcl::IndicesPtr ground, obstacles;
-			pcl::PointCloud<pcl::PointXYZ>::Ptr cloud = util3d::cloudFromSensorData(data, 1, 0, 0, indices.get());
-			cloud = util3d::voxelize(cloud, indices, 0.01);
+			pcl::PointCloud<pcl::PointXYZ>::Ptr cloud = util3d::cloudFromSensorData(data, 1, 10, 0, indices.get());
 			bool success = false;
-			if(cloud->size())
+			if(indices->size())
 			{
+				cloud = util3d::voxelize(cloud, indices, 0.01);
 				util3d::segmentObstaclesFromGround<pcl::PointXYZ>(cloud, ground, obstacles, 20, M_PI/4.0f, 0.02, 200, true);
 				if(ground->size())
 				{
@@ -544,6 +546,7 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 			distanceTravelled_ += t.getNorm();
 			info->distanceTravelled = distanceTravelled_;
 		}
+		++framesProcessed_;
 
 		return _pose *= t; // update
 	}

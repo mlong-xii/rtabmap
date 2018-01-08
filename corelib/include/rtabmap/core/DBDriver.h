@@ -68,6 +68,7 @@ public:
 	virtual ~DBDriver();
 
 	virtual void parseParameters(const ParametersMap & parameters);
+	virtual bool isInMemory() const {return _url.empty();}
 	const std::string & getUrl() const {return _url;}
 
 	void beginTransaction() const;
@@ -145,6 +146,7 @@ public:
 	int getTotalDictionarySize() const;
 	ParametersMap getLastParameters() const;
 	std::map<std::string, float> getStatistics(int nodeId, double & stamp) const;
+	std::map<int, std::pair<std::map<std::string, float>, double> > getAllStatistics() const;
 
 	void executeNoResult(const std::string & sql) const;
 
@@ -159,7 +161,7 @@ public:
 	void getNodeData(int signatureId, SensorData & data, bool images = true, bool scan = true, bool userData = true, bool occupancyGrid = true) const;
 	bool getCalibration(int signatureId, std::vector<CameraModel> & models, StereoCameraModel & stereoModel) const;
 	bool getLaserScanInfo(int signatureId, LaserScanInfo & info) const;
-	bool getNodeInfo(int signatureId, Transform & pose, int & mapId, int & weight, std::string & label, double & stamp, Transform & groundTruthPose, std::vector<float> & velocity) const;
+	bool getNodeInfo(int signatureId, Transform & pose, int & mapId, int & weight, std::string & label, double & stamp, Transform & groundTruthPose, std::vector<float> & velocity, GPS & gps) const;
 	void loadLinks(int signatureId, std::map<int, Link> & links, Link::Type type = Link::kUndef) const;
 	void getWeight(int signatureId, int & weight) const;
 	void getAllNodeIds(std::set<int> & ids, bool ignoreChildren = false, bool ignoreBadSignatures = false) const;
@@ -196,12 +198,13 @@ private:
 	virtual int getTotalDictionarySizeQuery() const = 0;
 	virtual ParametersMap getLastParametersQuery() const = 0;
 	virtual std::map<std::string, float> getStatisticsQuery(int nodeId, double & stamp) const = 0;
+	virtual std::map<int, std::pair<std::map<std::string, float>, double> > getAllStatisticsQuery() const = 0;
 
 	virtual void executeNoResultQuery(const std::string & sql) const = 0;
 
 	virtual void getWeightQuery(int signatureId, int & weight) const = 0;
 
-	virtual void saveQuery(const std::list<Signature *> & signatures) const = 0;
+	virtual void saveQuery(const std::list<Signature *> & signatures) = 0;
 	virtual void saveQuery(const std::list<VisualWord *> & words) const = 0;
 	virtual void updateQuery(const std::list<Signature *> & signatures, bool updateTimestamp) const = 0;
 	virtual void updateQuery(const std::list<VisualWord *> & words, bool updateTimestamp) const = 0;
@@ -253,7 +256,7 @@ private:
 	virtual void loadNodeDataQuery(std::list<Signature *> & signatures, bool images=true, bool scan=true, bool userData=true, bool occupancyGrid=true) const = 0;
 	virtual bool getCalibrationQuery(int signatureId, std::vector<CameraModel> & models, StereoCameraModel & stereoModel) const = 0;
 	virtual bool getLaserScanInfoQuery(int signatureId, LaserScanInfo & info) const = 0;
-	virtual bool getNodeInfoQuery(int signatureId, Transform & pose, int & mapId, int & weight, std::string & label, double & stamp, Transform & groundTruthPose, std::vector<float> & velocity) const = 0;
+	virtual bool getNodeInfoQuery(int signatureId, Transform & pose, int & mapId, int & weight, std::string & label, double & stamp, Transform & groundTruthPose, std::vector<float> & velocity, GPS & gps) const = 0;
 	virtual void getAllNodeIdsQuery(std::set<int> & ids, bool ignoreChildren, bool ignoreBadSignatures) const = 0;
 	virtual void getAllLinksQuery(std::multimap<int, Link> & links, bool ignoreNullLinks) const = 0;
 	virtual void getLastIdQuery(const std::string & tableName, int & id) const = 0;
@@ -263,7 +266,7 @@ private:
 
 private:
 	//non-abstract methods
-	void saveOrUpdate(const std::vector<Signature *> & signatures) const;
+	void saveOrUpdate(const std::vector<Signature *> & signatures);
 	void saveOrUpdate(const std::vector<VisualWord *> & words) const;
 
 	//thread stuff
