@@ -46,11 +46,14 @@ class Tracker: public Tracking
 {
 public:
 	Tracker(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer, MapDrawer* pMapDrawer, Map* pMap,
-	             KeyFrameDatabase* pKFDB, const std::string &strSettingPath, const int sensor) :
-	            	 Tracking(pSys, pVoc, pFrameDrawer, pMapDrawer, pMap, pKFDB, strSettingPath, sensor)
+	             KeyFrameDatabase* pKFDB, const std::string &strSettingPath, const int sensor, long unsigned int maxFeatureMapSize) :
+	            	 Tracking(pSys, pVoc, pFrameDrawer, pMapDrawer, pMap, pKFDB, strSettingPath, sensor),
+	            	 maxFeatureMapSize_(maxFeatureMapSize)
 	{
 
 	}
+private:
+	long unsigned int maxFeatureMapSize_;
 
 protected:
 	void Track()
@@ -248,7 +251,60 @@ protected:
 
 	            // Check if we need to insert a new keyframe
 	            if(NeedNewKeyFrame())
+	            {
 	                CreateNewKeyFrame();
+	            }
+
+	            if(maxFeatureMapSize_ > 0)
+				{
+					//limit size of the feature map, keep last X recent ones
+					if(mpMap->KeyFramesInMap()>1 && mpMap->MapPointsInMap()>maxFeatureMapSize_)
+					{
+						std::vector<KeyFrame*> kfs = mpMap->GetAllKeyFrames();
+						std::map<long unsigned int, KeyFrame*> kfsSorted;
+						for(unsigned int i=1; i<kfs.size(); ++i)
+						{
+							kfsSorted.insert(std::make_pair(kfs[i]->mnId, kfs[i]));
+						}
+						KeyFrame * lastFrame = kfsSorted.rbegin()->second;
+						std::vector<MapPoint*> mapPoints = mpMap->GetAllMapPoints();
+						std::map<long unsigned int, MapPoint*> mapPointsSorted;
+						for(unsigned int i=0; i<mapPoints.size(); ++i)
+						{
+							mapPointsSorted.insert(std::make_pair(mapPoints[i]->mnId, mapPoints[i]));
+						}
+
+						for(std::map<long unsigned int, MapPoint*>::iterator iter=mapPointsSorted.begin();
+							iter != mapPointsSorted.end() && mpMap->MapPointsInMap()>maxFeatureMapSize_;
+							++iter)
+						{
+							if(!iter->second->IsInKeyFrame(lastFrame))
+							{
+								// FIXME: Memory leak: ORB_SLAM2 doesn't delete after removing from the map...
+								// Not sure when it is safe to delete it, as if I delete just
+								// after setting the bad flag, the app crashes.
+								iter->second->SetBadFlag();
+							}
+						}
+						// remove kfs without observations
+						for(std::map<long unsigned int, KeyFrame*>::iterator iter=kfsSorted.begin();
+							iter != kfsSorted.end();
+							++iter)
+						{
+							if(iter->second!=lastFrame && iter->second->GetMapPoints().size()==0)
+							{
+								// FIXME: Memory leak: ORB_SLAM2 doesn't delete after removing from the map...
+								// Not sure when it is safe to delete it, as if I delete just
+								// after setting the bad flag, the app crashes.
+								iter->second->SetErase();
+							}
+							else
+							{
+								break;
+							}
+						}
+					}
+				}
 
 	            // We allow points with high innovation (considererd outliers by the Huber Function)
 	            // pass to the new keyframe, so that bundle adjustment will finally decide
@@ -466,7 +522,7 @@ public:
 			if(CheckFinish())
 				break;
 
-			usleep(30000);
+			usleep(1000000); // 1 sec
 		}
 
 		SetFinish();
@@ -591,6 +647,11 @@ public:
 		ofs << "Camera.RGB: 1" << std::endl;
 		ofs << std::endl;
 
+		float fps = rtabmap::Parameters::defaultOdomORBSLAM2Fps();
+		rtabmap::Parameters::parse(parameters_, rtabmap::Parameters::kOdomORBSLAM2Fps(), fps);
+		ofs << "Camera.fps: " << fps << std::endl;
+		ofs << std::endl;
+
 		//# Close/Far threshold. Baseline times.
 		double thDepth = rtabmap::Parameters::defaultOdomORBSLAM2ThDepth();
 		rtabmap::Parameters::parse(parameters_, rtabmap::Parameters::kOdomORBSLAM2ThDepth(), thDepth);
@@ -605,8 +666,8 @@ public:
 		//# ORB Parameters
 		//#--------------------------------------------------------------------------------------------
 		//# ORB Extractor: Number of features per image
-		int features = rtabmap::Parameters::defaultVisMaxFeatures();
-		rtabmap::Parameters::parse(parameters_, rtabmap::Parameters::kVisMaxFeatures(), features);
+		int features = rtabmap::Parameters::defaultOdomORBSLAM2MaxFeatures();
+		rtabmap::Parameters::parse(parameters_, rtabmap::Parameters::kOdomORBSLAM2MaxFeatures(), features);
 		ofs << "ORBextractor.nFeatures: " << features << std::endl;
 		ofs << std::endl;
 
@@ -634,6 +695,9 @@ public:
 		ofs << "ORBextractor.minThFAST: " << minThFAST << std::endl;
 		ofs << std::endl;
 
+		int maxFeatureMapSize = rtabmap::Parameters::defaultOdomORBSLAM2MapSize();
+		rtabmap::Parameters::parse(parameters_, rtabmap::Parameters::kOdomORBSLAM2MapSize(), maxFeatureMapSize);
+
 		ofs.close();
 
 		//Create KeyFrame Database
@@ -644,7 +708,7 @@ public:
 
 		//Initialize the Tracking thread
 		//(it will live in the main thread of execution, the one that called this constructor)
-		mpTracker = new ORB_SLAM2::Tracker(0, mpVocabulary, 0, 0, mpMap, mpKeyFrameDatabase, configPath, stereo?ORB_SLAM2::System::STEREO:ORB_SLAM2::System::RGBD);
+		mpTracker = new ORB_SLAM2::Tracker(0, mpVocabulary, 0, 0, mpMap, mpKeyFrameDatabase, configPath, stereo?ORB_SLAM2::System::STEREO:ORB_SLAM2::System::RGBD, maxFeatureMapSize);
 
 		//Initialize the Local Mapping thread and launch
 		mpLocalMapper = new ORB_SLAM2::LocalMapping(mpMap, false);
@@ -869,14 +933,26 @@ Transform OdometryORBSLAM2::computeTransform(
 		}
 		else
 		{
-			//based on values set in viso2_ros
+			float baseline = data.stereoCameraModel().baseline();
+			if(baseline <= 0.0f)
+			{
+				baseline = rtabmap::Parameters::defaultOdomORBSLAM2Bf();
+				rtabmap::Parameters::parse(orbslam2_->parameters_, rtabmap::Parameters::kOdomORBSLAM2Bf(), baseline);
+			}
+			double linearVar = 0.0001;
+			if(baseline > 0.0f)
+			{
+				linearVar = baseline/8.0;
+				linearVar *= linearVar;
+			}
+
 			covariance = cv::Mat::eye(6,6, CV_64FC1);
-			covariance.at<double>(0,0) = 0.002;
-			covariance.at<double>(1,1) = 0.002;
-			covariance.at<double>(2,2) = 0.05;
-			covariance.at<double>(3,3) = 0.09;
-			covariance.at<double>(4,4) = 0.09;
-			covariance.at<double>(5,5) = 0.09;
+			covariance.at<double>(0,0) = linearVar;
+			covariance.at<double>(1,1) = linearVar;
+			covariance.at<double>(2,2) = linearVar;
+			covariance.at<double>(3,3) = 0.0001;
+			covariance.at<double>(4,4) = 0.0001;
+			covariance.at<double>(5,5) = 0.0001;
 		}
 	}
 

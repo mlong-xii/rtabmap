@@ -54,6 +54,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pcl/io/obj_io.h>
 #include <pcl/pcl_config.h>
 #include <pcl/surface/poisson.h>
+#include <pcl/common/common.h>
 
 #include <QPushButton>
 #include <QDir>
@@ -68,6 +69,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cpu_tsdf/marching_cubes_tsdf_octree.h>
 #endif
 
+#ifdef RTABMAP_OPENCHISEL
+#include "chisel_conversions.h"
+#include <open_chisel/ProjectionIntegrator.h>
+#include <open_chisel/truncation/QuadraticTruncator.h>
+#include <open_chisel/weighting/ConstantWeighter.h>
+#endif
+
 namespace rtabmap {
 
 ExportCloudsDialog::ExportCloudsDialog(QWidget *parent) :
@@ -80,6 +88,10 @@ ExportCloudsDialog::ExportCloudsDialog(QWidget *parent) :
 	_ui->setupUi(this);
 
 	connect(_ui->buttonBox->button(QDialogButtonBox::RestoreDefaults), SIGNAL(clicked()), this, SLOT(restoreDefaults()));
+	QPushButton * loadSettingsButton = _ui->buttonBox->addButton("Load Settings", QDialogButtonBox::ActionRole);
+	QPushButton * saveSettingsButton = _ui->buttonBox->addButton("Save Settings", QDialogButtonBox::ActionRole);
+	connect(loadSettingsButton, SIGNAL(clicked()), this, SLOT(loadSettings()));
+	connect(saveSettingsButton, SIGNAL(clicked()), this, SLOT(saveSettings()));
 
 	restoreDefaults();
 	_ui->comboBox_upsamplingMethod->setItemData(1, 0, Qt::UserRole - 1); // disable DISTINCT_CLOUD
@@ -201,6 +213,21 @@ ExportCloudsDialog::ExportCloudsDialog(QWidget *parent) :
 	connect(_ui->doubleSpinBox_cputsdf_flattenRadius, SIGNAL(valueChanged(double)), this, SIGNAL(configChanged()));
 	connect(_ui->spinBox_cputsdf_randomSplit, SIGNAL(valueChanged(int)), this, SIGNAL(configChanged()));
 
+	connect(_ui->checkBox_openchisel_mergeVertices, SIGNAL(stateChanged(int)), this, SIGNAL(configChanged()));
+	connect(_ui->spinBox_openchisel_chunk_size_x, SIGNAL(valueChanged(int)), this, SIGNAL(configChanged()));
+	connect(_ui->spinBox_openchisel_chunk_size_y, SIGNAL(valueChanged(int)), this, SIGNAL(configChanged()));
+	connect(_ui->spinBox_openchisel_chunk_size_z, SIGNAL(valueChanged(int)), this, SIGNAL(configChanged()));
+	connect(_ui->doubleSpinBox_openchisel_truncation_constant, SIGNAL(valueChanged(double)), this, SIGNAL(configChanged()));
+	connect(_ui->doubleSpinBox_openchisel_truncation_linear, SIGNAL(valueChanged(double)), this, SIGNAL(configChanged()));
+	connect(_ui->doubleSpinBox_openchisel_truncation_quadratic, SIGNAL(valueChanged(double)), this, SIGNAL(configChanged()));
+	connect(_ui->doubleSpinBox_openchisel_truncation_scale, SIGNAL(valueChanged(double)), this, SIGNAL(configChanged()));
+	connect(_ui->spinBox_openchisel_integration_weight, SIGNAL(valueChanged(int)), this, SIGNAL(configChanged()));
+	connect(_ui->checkBox_openchisel_use_voxel_carving, SIGNAL(stateChanged(int)), this, SIGNAL(configChanged()));
+	connect(_ui->doubleSpinBox_openchisel_carving_dist_m, SIGNAL(valueChanged(double)), this, SIGNAL(configChanged()));
+	connect(_ui->doubleSpinBox_openchisel_near_plane_dist, SIGNAL(valueChanged(double)), this, SIGNAL(configChanged()));
+	connect(_ui->doubleSpinBox_openchisel_far_plane_dist, SIGNAL(valueChanged(double)), this, SIGNAL(configChanged()));
+
+
 	_progressDialog = new ProgressDialog(this);
 	_progressDialog->setVisible(false);
 	_progressDialog->setAutoClose(true, 2);
@@ -244,6 +271,24 @@ void ExportCloudsDialog::cancel()
 {
 	_canceled = true;
 	_progressDialog->appendText(tr("Canceled!"));
+}
+
+void ExportCloudsDialog::forceAssembling(bool enabled)
+{
+	if(enabled)
+	{
+		_ui->checkBox_assemble->setChecked(true);
+		_ui->checkBox_assemble->setEnabled(false);
+	}
+	else
+	{
+		_ui->checkBox_assemble->setEnabled(true);
+	}
+}
+
+void ExportCloudsDialog::setProgressDialogToMax()
+{
+	_progressDialog->setValue(_progressDialog->maximumSteps());
 }
 
 void ExportCloudsDialog::saveSettings(QSettings & settings, const QString & group) const
@@ -356,6 +401,20 @@ void ExportCloudsDialog::saveSettings(QSettings & settings, const QString & grou
 	settings.setValue("cputsdf_flattenRadius", _ui->doubleSpinBox_cputsdf_flattenRadius->value());
 	settings.setValue("cputsdf_randomSplit", _ui->spinBox_cputsdf_randomSplit->value());
 
+	settings.setValue("openchisel_merge_vertices", _ui->checkBox_openchisel_mergeVertices->isChecked());
+	settings.setValue("openchisel_chunk_size_x", _ui->spinBox_openchisel_chunk_size_x->value());
+	settings.setValue("openchisel_chunk_size_y", _ui->spinBox_openchisel_chunk_size_y->value());
+	settings.setValue("openchisel_chunk_size_z", _ui->spinBox_openchisel_chunk_size_z->value());
+	settings.setValue("openchisel_truncation_constant", _ui->doubleSpinBox_openchisel_truncation_constant->value());
+	settings.setValue("openchisel_truncation_linear", _ui->doubleSpinBox_openchisel_truncation_linear->value());
+	settings.setValue("openchisel_truncation_quadratic", _ui->doubleSpinBox_openchisel_truncation_quadratic->value());
+	settings.setValue("openchisel_truncation_scale", _ui->doubleSpinBox_openchisel_truncation_scale->value());
+	settings.setValue("openchisel_integration_weight", _ui->spinBox_openchisel_integration_weight->value());
+	settings.setValue("openchisel_use_voxel_carving", _ui->checkBox_openchisel_use_voxel_carving->isChecked());
+	settings.setValue("openchisel_carving_dist_m", _ui->doubleSpinBox_openchisel_carving_dist_m->value());
+	settings.setValue("openchisel_near_plane_dist", _ui->doubleSpinBox_openchisel_near_plane_dist->value());
+	settings.setValue("openchisel_far_plane_dist", _ui->doubleSpinBox_openchisel_far_plane_dist->value());
+
 	if(!group.isEmpty())
 	{
 		settings.endGroup();
@@ -392,7 +451,10 @@ void ExportCloudsDialog::loadSettings(QSettings & settings, const QString & grou
 	_ui->doubleSpinBox_filteringRadius->setValue(settings.value("filtering_radius", _ui->doubleSpinBox_filteringRadius->value()).toDouble());
 	_ui->spinBox_filteringMinNeighbors->setValue(settings.value("filtering_min_neighbors", _ui->spinBox_filteringMinNeighbors->value()).toInt());
 
-	_ui->checkBox_assemble->setChecked(settings.value("assemble", _ui->checkBox_assemble->isChecked()).toBool());
+	if(_ui->checkBox_assemble->isEnabled())
+	{
+		_ui->checkBox_assemble->setChecked(settings.value("assemble", _ui->checkBox_assemble->isChecked()).toBool());
+	}
 	_ui->doubleSpinBox_voxelSize_assembled->setValue(settings.value("assemble_voxel", _ui->doubleSpinBox_voxelSize_assembled->value()).toDouble());
 	_ui->comboBox_frame->setCurrentIndex(settings.value("frame", _ui->comboBox_frame->currentIndex()).toInt());
 
@@ -475,6 +537,20 @@ void ExportCloudsDialog::loadSettings(QSettings & settings, const QString & grou
 	_ui->doubleSpinBox_cputsdf_flattenRadius->setValue(settings.value("cputsdf_flattenRadius", _ui->doubleSpinBox_cputsdf_flattenRadius->value()).toDouble());
 	_ui->spinBox_cputsdf_randomSplit->setValue(settings.value("cputsdf_randomSplit", _ui->spinBox_cputsdf_randomSplit->value()).toInt());
 
+	_ui->checkBox_openchisel_mergeVertices->setChecked(settings.value("openchisel_merge_vertices", _ui->checkBox_openchisel_mergeVertices->isChecked()).toBool());
+	_ui->spinBox_openchisel_chunk_size_x->setValue(settings.value("openchisel_chunk_size_x", _ui->spinBox_openchisel_chunk_size_x->value()).toInt());
+	_ui->spinBox_openchisel_chunk_size_y->setValue(settings.value("openchisel_chunk_size_y", _ui->spinBox_openchisel_chunk_size_y->value()).toInt());
+	_ui->spinBox_openchisel_chunk_size_z->setValue(settings.value("openchisel_chunk_size_z", _ui->spinBox_openchisel_chunk_size_z->value()).toInt());
+	_ui->doubleSpinBox_openchisel_truncation_constant->setValue(settings.value("openchisel_truncation_constant", _ui->doubleSpinBox_openchisel_truncation_constant->value()).toDouble());
+	_ui->doubleSpinBox_openchisel_truncation_linear->setValue(settings.value("openchisel_truncation_linear", _ui->doubleSpinBox_openchisel_truncation_linear->value()).toDouble());
+	_ui->doubleSpinBox_openchisel_truncation_quadratic->setValue(settings.value("openchisel_truncation_quadratic", _ui->doubleSpinBox_openchisel_truncation_quadratic->value()).toDouble());
+	_ui->doubleSpinBox_openchisel_truncation_scale->setValue(settings.value("openchisel_truncation_scale", _ui->doubleSpinBox_openchisel_truncation_scale->value()).toDouble());
+	_ui->spinBox_openchisel_integration_weight->setValue(settings.value("openchisel_integration_weight", _ui->spinBox_openchisel_integration_weight->value()).toInt());
+	_ui->checkBox_openchisel_use_voxel_carving->setChecked(settings.value("openchisel_use_voxel_carving", _ui->checkBox_openchisel_use_voxel_carving->isChecked()).toBool());
+	_ui->doubleSpinBox_openchisel_carving_dist_m->setValue(settings.value("openchisel_carving_dist_m", _ui->doubleSpinBox_openchisel_carving_dist_m->value()).toDouble());
+	_ui->doubleSpinBox_openchisel_near_plane_dist->setValue(settings.value("openchisel_near_plane_dist", _ui->doubleSpinBox_openchisel_near_plane_dist->value()).toDouble());
+	_ui->doubleSpinBox_openchisel_far_plane_dist->setValue(settings.value("openchisel_far_plane_dist", _ui->doubleSpinBox_openchisel_far_plane_dist->value()).toDouble());
+
 	updateReconstructionFlavor();
 	updateMLSGrpVisibility();
 
@@ -510,7 +586,7 @@ void ExportCloudsDialog::restoreDefaults()
 	_ui->spinBox_filteringMinNeighbors->setValue(2);
 
 	_ui->checkBox_assemble->setChecked(true);
-	_ui->doubleSpinBox_voxelSize_assembled->setValue(0.0);
+	_ui->doubleSpinBox_voxelSize_assembled->setValue(0.01);
 	_ui->comboBox_frame->setCurrentIndex(0);
 
 	_ui->checkBox_subtraction->setChecked(false);
@@ -573,7 +649,7 @@ void ExportCloudsDialog::restoreDefaults()
 
 	_ui->checkBox_poisson_outputPolygons->setChecked(false);
 	_ui->checkBox_poisson_manifold->setChecked(true);
-	_ui->spinBox_poisson_depth->setValue(9);
+	_ui->spinBox_poisson_depth->setValue(0);
 	_ui->spinBox_poisson_iso->setValue(8);
 	_ui->spinBox_poisson_solver->setValue(8);
 	_ui->spinBox_poisson_minDepth->setValue(5);
@@ -589,10 +665,53 @@ void ExportCloudsDialog::restoreDefaults()
 	_ui->doubleSpinBox_cputsdf_flattenRadius->setValue(0.005);
 	_ui->spinBox_cputsdf_randomSplit->setValue(1);
 
+	_ui->checkBox_openchisel_mergeVertices->setChecked(true);
+	_ui->spinBox_openchisel_chunk_size_x->setValue(16);
+	_ui->spinBox_openchisel_chunk_size_y->setValue(16);
+	_ui->spinBox_openchisel_chunk_size_z->setValue(16);
+	_ui->doubleSpinBox_openchisel_truncation_constant->setValue(0.001504);
+	_ui->doubleSpinBox_openchisel_truncation_linear->setValue(0.00152);
+	_ui->doubleSpinBox_openchisel_truncation_quadratic->setValue(0.0019);
+	_ui->doubleSpinBox_openchisel_truncation_scale->setValue(10.0);
+	_ui->spinBox_openchisel_integration_weight->setValue(1);
+	_ui->checkBox_openchisel_use_voxel_carving->setChecked(false);
+	_ui->doubleSpinBox_openchisel_carving_dist_m->setValue(0.05);
+	_ui->doubleSpinBox_openchisel_near_plane_dist->setValue(0.05);
+	_ui->doubleSpinBox_openchisel_far_plane_dist->setValue(1.1);
+
+
 	updateReconstructionFlavor();
 	updateMLSGrpVisibility();
 
 	this->update();
+}
+
+void ExportCloudsDialog::loadSettings()
+{
+	QString path = QFileDialog::getOpenFileName(this, tr("Load Settings"), _workingDirectory, tr("Config (*.ini)"));
+	if(path.size())
+	{
+		QSettings settings(path, QSettings::IniFormat);
+		settings.beginGroup("Gui");
+		settings.beginGroup(this->objectName());
+		this->loadSettings(settings);
+		settings.endGroup(); // "name"
+		settings.endGroup(); // Gui
+	}
+}
+
+void ExportCloudsDialog::saveSettings()
+{
+	QString path = QFileDialog::getSaveFileName(this, tr("Save Settings"), _workingDirectory, tr("Config (*.ini)"));
+	if(path.size())
+	{
+		QSettings settings(path, QSettings::IniFormat);
+		settings.beginGroup("Gui");
+		settings.beginGroup(this->objectName());
+		this->saveSettings(settings);
+		settings.endGroup(); // "name"
+		settings.endGroup(); // Gui
+	}
 }
 
 void ExportCloudsDialog::updateReconstructionFlavor()
@@ -621,6 +740,7 @@ void ExportCloudsDialog::updateReconstructionFlavor()
 
 	_ui->checkBox_smoothing->setVisible(_ui->comboBox_pipeline->currentIndex() == 1);
 	_ui->checkBox_smoothing->setEnabled(_ui->comboBox_pipeline->currentIndex() == 1);
+	_ui->label_smoothing->setVisible(_ui->comboBox_pipeline->currentIndex() == 1);
 
 	_ui->comboBox_frame->setEnabled(!_ui->checkBox_assemble->isChecked() && _ui->checkBox_binary->isEnabled());
 	_ui->comboBox_frame->setVisible(_ui->comboBox_frame->isEnabled());
@@ -643,20 +763,34 @@ void ExportCloudsDialog::updateReconstructionFlavor()
 	// dense texturing options
 	if(_ui->checkBox_meshing->isChecked())
 	{
+		//GP3
 		_ui->comboBox_meshingApproach->setItemData(0, _ui->comboBox_pipeline->currentIndex() == 1?1 | 32:0,Qt::UserRole - 1);
+
+		//Poisson
 		_ui->comboBox_meshingApproach->setItemData(1, _ui->comboBox_pipeline->currentIndex() == 1 && _ui->checkBox_assemble->isChecked()?1 | 32:0,Qt::UserRole - 1);
+
+		//CPU-TSDF
 #ifdef RTABMAP_CPUTSDF
 		_ui->comboBox_meshingApproach->setItemData(2, _ui->comboBox_pipeline->currentIndex() == 0 && _ui->checkBox_assemble->isChecked()?1 | 32:0,Qt::UserRole - 1);
 #else
-		_ui->comboBox_meshingApproach->setItemData(2, Qt::UserRole - 1);
+		_ui->comboBox_meshingApproach->setItemData(2, 0, Qt::UserRole - 1);
 #endif
+
+		// Organized
 		_ui->comboBox_meshingApproach->setItemData(3, _ui->comboBox_pipeline->currentIndex() == 0?1 | 32:0,Qt::UserRole - 1);
+
+		//Open Chisel
+#ifdef RTABMAP_OPENCHISEL
+		_ui->comboBox_meshingApproach->setItemData(4, _ui->checkBox_assemble->isChecked()?1 | 32:0,Qt::UserRole - 1);
+#else
+		_ui->comboBox_meshingApproach->setItemData(4, 0, Qt::UserRole - 1);
+#endif
 
 		if(_ui->comboBox_pipeline->currentIndex() == 0 && _ui->comboBox_meshingApproach->currentIndex()<2)
 		{
 			_ui->comboBox_meshingApproach->setCurrentIndex(3);
 		}
-		if(_ui->comboBox_pipeline->currentIndex() == 1 && _ui->comboBox_meshingApproach->currentIndex()>1)
+		if(_ui->comboBox_pipeline->currentIndex() == 1 && (_ui->comboBox_meshingApproach->currentIndex()==2 || _ui->comboBox_meshingApproach->currentIndex()==3))
 		{
 			_ui->comboBox_meshingApproach->setCurrentIndex(1);
 		}
@@ -678,6 +812,7 @@ void ExportCloudsDialog::updateReconstructionFlavor()
 		_ui->groupBox_poisson->setVisible(_ui->comboBox_pipeline->currentIndex() == 1 && _ui->comboBox_meshingApproach->currentIndex()==1);
 		_ui->groupBox_cputsdf->setVisible(_ui->comboBox_pipeline->currentIndex() == 0 && _ui->comboBox_meshingApproach->currentIndex()==2);
 		_ui->groupBox_organized->setVisible(_ui->comboBox_pipeline->currentIndex() == 0 && _ui->comboBox_meshingApproach->currentIndex()==3);
+		_ui->groupBox_openchisel->setVisible(_ui->comboBox_meshingApproach->currentIndex()==4);
 
 #ifndef DISABLE_VTK
 		_ui->doubleSpinBox_meshDecimationFactor->setEnabled(_ui->comboBox_meshingApproach->currentIndex()!=3);
@@ -734,7 +869,7 @@ void ExportCloudsDialog::exportClouds(
 		const std::map<int, int> & mapIds,
 		const QMap<int, Signature> & cachedSignatures,
 		const std::map<int, std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::IndicesPtr> > & cachedClouds,
-		const std::map<int, cv::Mat> & cachedScans,
+		const std::map<int, LaserScan> & cachedScans,
 		const QString & workingDirectory,
 		const ParametersMap & parameters)
 {
@@ -796,7 +931,7 @@ void ExportCloudsDialog::viewClouds(
 		const std::map<int, int> & mapIds,
 		const QMap<int, Signature> & cachedSignatures,
 		const std::map<int, std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::IndicesPtr> > & cachedClouds,
-		const std::map<int, cv::Mat> & cachedScans,
+		const std::map<int, LaserScan> & cachedScans,
 		const QString & workingDirectory,
 		const ParametersMap & parameters)
 {
@@ -842,6 +977,7 @@ void ExportCloudsDialog::viewClouds(
 		}
 		viewer->setLighting(true);
 		viewer->setDefaultBackgroundColor(QColor(40, 40, 40, 255));
+		viewer->buildPickingLocator(true);
 
 		QVBoxLayout *layout = new QVBoxLayout();
 		layout->addWidget(viewer);
@@ -858,6 +994,7 @@ void ExportCloudsDialog::viewClouds(
 
 		if(textureMeshes.size())
 		{
+			viewer->setPolygonPicking(true);
 			std::map<int, cv::Mat> images;
 			std::map<int, std::vector<CameraModel> > calibrations;
 			for(QMap<int, Signature>::const_iterator iter=cachedSignatures.constBegin(); iter!=cachedSignatures.constEnd(); ++iter)
@@ -1014,6 +1151,7 @@ void ExportCloudsDialog::viewClouds(
 		}
 		else if(meshes.size())
 		{
+			viewer->setPolygonPicking(true);
 			for(std::map<int, pcl::PolygonMesh::Ptr>::iterator iter = meshes.begin(); iter!=meshes.end(); ++iter)
 			{
 				_progressDialog->appendText(tr("Viewing the mesh %1 (%2 polygons)...").arg(iter->first).arg(iter->second->polygons.size()));
@@ -1070,6 +1208,60 @@ void ExportCloudsDialog::viewClouds(
 	_progressDialog->setValue(_progressDialog->maximumSteps());
 }
 
+int ExportCloudsDialog::getTextureSize() const
+{
+	int textureSize = 1024;
+	if(_ui->comboBox_meshingTextureSize->currentIndex() > 0)
+	{
+		textureSize = 128 << _ui->comboBox_meshingTextureSize->currentIndex(); // start at 256
+	}
+	return textureSize;
+}
+int ExportCloudsDialog::getMaxTextures() const
+{
+	return _ui->spinBox_mesh_maxTextures->value();
+}
+bool ExportCloudsDialog::isGainCompensation() const
+{
+	return _ui->checkBox_gainCompensation->isChecked();
+}
+double ExportCloudsDialog::getGainBeta() const
+{
+	return _ui->doubleSpinBox_gainBeta->value();
+}
+bool ExportCloudsDialog::isGainRGB() const
+{
+	return _ui->checkBox_gainRGB->isChecked();
+}
+bool ExportCloudsDialog::isBlending() const
+{
+	return _ui->checkBox_blending->isChecked();
+}
+int ExportCloudsDialog::getBlendingDecimation() const
+{
+	int blendingDecimation = 0;
+	if(_ui->checkBox_blending->isChecked())
+	{
+		if(_ui->comboBox_blendingDecimation->currentIndex() > 0)
+		{
+			blendingDecimation = 1 << (_ui->comboBox_blendingDecimation->currentIndex()-1);
+		}
+	}
+	return blendingDecimation;
+}
+int ExportCloudsDialog::getTextureBrightnessConstrastRatioLow() const
+{
+	return _ui->spinBox_textureBrightnessContrastRatioLow->value();
+}
+int ExportCloudsDialog::getTextureBrightnessConstrastRatioHigh() const
+{
+	return _ui->spinBox_textureBrightnessContrastRatioHigh->value();
+}
+bool ExportCloudsDialog::isExposeFusion() const
+{
+	return _ui->checkBox_exposureFusion->isEnabled() && _ui->checkBox_exposureFusion->isChecked();
+}
+
 bool ExportCloudsDialog::removeDirRecursively(const QString & dirName)
 {
     bool result = true;
@@ -1099,7 +1291,7 @@ bool ExportCloudsDialog::getExportedClouds(
 		const std::map<int, int> & mapIds,
 		const QMap<int, Signature> & cachedSignatures,
 		const std::map<int, std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::IndicesPtr> > & cachedClouds,
-		const std::map<int, cv::Mat> & cachedScans,
+		const std::map<int, LaserScan> & cachedScans,
 		const QString & workingDirectory,
 		const ParametersMap & parameters,
 		std::map<int, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr> & cloudsWithNormals,
@@ -1157,14 +1349,38 @@ bool ExportCloudsDialog::getExportedClouds(
 		}
 		_progressDialog->setMaximumSteps(int(poses.size())*mul+1);
 
+		bool loadClouds = true;
+#ifdef RTABMAP_OPENCHISEL
+		if(_ui->comboBox_meshingApproach->currentIndex()==4 && _ui->checkBox_assemble->isChecked())
+		{
+			loadClouds = !_ui->checkBox_fromDepth->isChecked();
+		}
+#endif
+
 		bool has2dScans = false;
-		std::map<int, std::pair<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr, pcl::IndicesPtr> > clouds = this->getClouds(
-				poses,
-				cachedSignatures,
-				cachedClouds,
-				cachedScans,
-				parameters,
-				has2dScans);
+		std::map<int, std::pair<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr, pcl::IndicesPtr> > clouds;
+		if(loadClouds)
+		{
+			clouds = this->getClouds(
+					poses,
+					cachedSignatures,
+					cachedClouds,
+					cachedScans,
+					parameters,
+					has2dScans);
+		}
+		else
+		{
+			// just create empty clouds
+			for(std::map<int, Transform>::const_iterator iter=poses.begin(); iter!=poses.end(); ++iter)
+			{
+				clouds.insert(std::make_pair(iter->first,
+						std::make_pair(
+								pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>),
+								pcl::IndicesPtr(new std::vector<int>))));
+
+			}
+		}
 
 		std::set<int> validCameras = uKeysSet(clouds);
 
@@ -1297,20 +1513,27 @@ bool ExportCloudsDialog::getExportedClouds(
 				}
 				else
 				{
-					LaserScanInfo info;
-					if(cachedSignatures.contains(iter->first))
+					if(uContains(cachedScans, iter->first))
+					{
+						iter->second *= cachedScans.at(iter->first).localTransform();
+					}
+					else if(cachedSignatures.contains(iter->first))
 					{
 						const SensorData & data = cachedSignatures.find(iter->first)->sensorData();
-						info = data.laserScanInfo();
+						if(!data.laserScanCompressed().isEmpty())
+						{
+							iter->second *= data.laserScanCompressed().localTransform();
+						}
+						else if(!data.laserScanRaw().isEmpty())
+						{
+							iter->second *= data.laserScanRaw().localTransform();
+						}
 					}
 					else if(_dbDriver)
 					{
-						_dbDriver->getLaserScanInfo(iter->first, info);
-					}
-
-					if(!info.localTransform().isNull())
-					{
-						iter->second *= info.localTransform();
+						LaserScan scan;
+						_dbDriver->getLaserScanInfo(iter->first, scan);
+						iter->second *= scan.localTransform();
 					}
 				}
 			}
@@ -1320,7 +1543,7 @@ bool ExportCloudsDialog::getExportedClouds(
 		pcl::PointCloud<pcl::PointXYZ>::Ptr rawAssembledCloud(new pcl::PointCloud<pcl::PointXYZ>);
 		std::vector<int> rawCameraIndices;
 		if(_ui->checkBox_assemble->isChecked() &&
-		   !(_ui->comboBox_pipeline->currentIndex()==0 && _ui->checkBox_meshing->isChecked()))
+		   !((_ui->comboBox_pipeline->currentIndex()==0 || _ui->comboBox_meshingApproach->currentIndex()==4) && _ui->checkBox_meshing->isChecked()))
 		{
 			_progressDialog->appendText(tr("Assembling %1 clouds...").arg(clouds.size()));
 			QApplication::processEvents();
@@ -1463,6 +1686,11 @@ bool ExportCloudsDialog::getExportedClouds(
 						(float)_ui->doubleSpinBox_dilationVoxelSize->value(),
 						_ui->spinBox_dilationSteps->value());
 
+				// make sure there are no nans
+				UDEBUG("NaNs filtering... size before = %d", cloudWithNormals->size());
+				cloudWithNormals = util3d::removeNaNNormalsFromPointCloud(cloudWithNormals);
+				UDEBUG("NaNs filtering... size after = %d", cloudWithNormals->size());
+
 				if(_ui->checkBox_assemble->isChecked())
 				{
 					// Re-voxelize to make sure to have uniform density
@@ -1509,6 +1737,10 @@ bool ExportCloudsDialog::getExportedClouds(
 #ifdef RTABMAP_CPUTSDF
 		cpu_tsdf::TSDFVolumeOctree::Ptr tsdf;
 #endif
+#ifdef RTABMAP_OPENCHISEL
+		chisel::ChiselPtr chiselMap;
+		chisel::ProjectionIntegrator projectionIntegrator;
+#endif
 
 		//used for organized texturing below
 		std::map<int, std::vector<int> > organizedIndices;
@@ -1518,11 +1750,166 @@ bool ExportCloudsDialog::getExportedClouds(
 		UDEBUG("Meshing=%d", _ui->checkBox_meshing->isChecked()?1:0);
 		if(_ui->checkBox_meshing->isChecked() && !has2dScans)
 		{
+
+#ifdef RTABMAP_OPENCHISEL
+			if(_ui->comboBox_meshingApproach->currentIndex()==4 && _ui->checkBox_assemble->isChecked())
+			{
+				_progressDialog->appendText(tr("Creating TSDF volume with OpenChisel... "));
+
+				QApplication::processEvents();
+				uSleep(100);
+				QApplication::processEvents();
+
+				pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr mergedClouds(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+				std::vector<pcl::Vertices> mergedPolygons;
+
+				int cloudsAdded = 1;
+				for(std::map<int, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr >::iterator iter=cloudsWithNormals.begin();
+					iter!= cloudsWithNormals.end();
+					++iter,++cloudsAdded)
+				{
+					std::vector<CameraModel> models;
+					StereoCameraModel stereoModel;
+					bool cacheHasCompressedImage = false;
+					LaserScan scanInfo;
+					if(cachedSignatures.contains(iter->first))
+					{
+						const SensorData & data = cachedSignatures.find(iter->first)->sensorData();
+						models = data.cameraModels();
+						cacheHasCompressedImage = !data.imageCompressed().empty();
+						scanInfo = !data.laserScanRaw().isEmpty()?data.laserScanRaw():data.laserScanCompressed();
+					}
+					else if(_dbDriver)
+					{
+						_dbDriver->getCalibration(iter->first, models, stereoModel);
+						_dbDriver->getLaserScanInfo(iter->first, scanInfo);
+					}
+
+					if(chiselMap.get() == 0)
+					{
+						UDEBUG("");
+						int chunkSizeX = _ui->spinBox_openchisel_chunk_size_x->value();
+						int chunkSizeY = _ui->spinBox_openchisel_chunk_size_y->value();
+						int chunkSizeZ = _ui->spinBox_openchisel_chunk_size_z->value();
+						float voxelResolution = _ui->doubleSpinBox_voxelSize_assembled->value();
+						if(voxelResolution <=0.0f)
+						{
+							_progressDialog->appendText(tr("OpenChisel: Voxel size should not be null!"), Qt::darkYellow);
+							_progressDialog->setAutoClose(false);
+							break;
+						}
+						bool useColor = _ui->checkBox_fromDepth->isChecked();
+						chiselMap.reset(new chisel::Chisel(Eigen::Vector3i(chunkSizeX, chunkSizeY, chunkSizeZ), voxelResolution, useColor));
+						double truncationDistConst = _ui->doubleSpinBox_openchisel_truncation_constant->value();
+						double truncationDistLinear = _ui->doubleSpinBox_openchisel_truncation_linear->value();
+						double truncationDistQuad = _ui->doubleSpinBox_openchisel_truncation_quadratic->value();
+						double truncationDistScale = _ui->doubleSpinBox_openchisel_truncation_scale->value();
+						int weight = _ui->spinBox_openchisel_integration_weight->value();
+						bool useCarving = _ui->checkBox_openchisel_use_voxel_carving->isChecked();
+						double carvingDist = _ui->doubleSpinBox_openchisel_carving_dist_m->value();
+						chisel::Vec4 truncation(truncationDistQuad, truncationDistLinear, truncationDistConst, truncationDistScale);
+						UDEBUG("If crashing just after this message, make sure PCL and OpenChisel are built both with -march=native or both without -march=native");
+						projectionIntegrator.SetCentroids(chiselMap->GetChunkManager().GetCentroids());
+						projectionIntegrator.SetTruncator(chisel::TruncatorPtr(new chisel::QuadraticTruncator(truncation(0), truncation(1), truncation(2), truncation(3))));
+						projectionIntegrator.SetWeighter(chisel::WeighterPtr(new chisel::ConstantWeighter(weight)));
+						projectionIntegrator.SetCarvingDist(carvingDist);
+						projectionIntegrator.SetCarvingEnabled(useCarving);
+					}
+
+					UDEBUG("");
+					double nearPlaneDist = _ui->doubleSpinBox_openchisel_near_plane_dist->value();
+					double farPlaneDist = _ui->doubleSpinBox_openchisel_far_plane_dist->value();
+					if(_ui->checkBox_fromDepth->isChecked())
+					{
+						if(models.size() == 1 && !models[0].localTransform().isNull())
+						{
+							// get just the depth
+							cv::Mat rgb;
+							cv::Mat depth;
+							if(cacheHasCompressedImage)
+							{
+								cachedSignatures.find(iter->first)->sensorData().uncompressDataConst(&rgb, &depth);
+							}
+							else if(_dbDriver)
+							{
+								SensorData data;
+								_dbDriver->getNodeData(iter->first, data, true, false, false, false);
+								data.uncompressDataConst(&rgb, &depth);
+							}
+							if(!rgb.empty() && !depth.empty())
+							{
+								CameraModel rgbModel = models[0];
+								CameraModel depthModel = rgbModel;
+								if(rgb.cols > depth.cols)
+								{
+									UASSERT(rgb.cols % depth.cols == 0);
+									depthModel = depthModel.scaled(double(depth.cols)/double(rgb.cols));
+								}
+
+								if(depth.type() == CV_16UC1)
+								{
+									depth = util2d::cvtDepthToFloat(depth);
+								}
+
+								std::shared_ptr<chisel::ColorImage<unsigned char> > colorChisel = colorImageToChisel(rgb);
+								std::shared_ptr<chisel::DepthImage<float> > depthChisel = depthImageToChisel(depth);
+
+								chisel::PinholeCamera cameraColor = cameraModelToChiselCamera(rgbModel);
+								chisel::PinholeCamera cameraDepth = cameraModelToChiselCamera(depthModel);
+								cameraColor.SetNearPlane(nearPlaneDist);
+								cameraColor.SetFarPlane(farPlaneDist);
+								cameraDepth.SetNearPlane(nearPlaneDist);
+								cameraDepth.SetFarPlane(farPlaneDist);
+
+								chisel::Transform  pose_rel_to_first_frame = (poses.at(iter->first)*models[0].localTransform()).toEigen3f();
+								chiselMap->IntegrateDepthScanColor<float, unsigned char>(projectionIntegrator, depthChisel, pose_rel_to_first_frame, cameraDepth, colorChisel, pose_rel_to_first_frame, cameraColor);
+								UDEBUG("");
+							}
+							else
+							{
+								_progressDialog->appendText(tr("OpenChisel: Depth and RGB images not found for %1!").arg(iter->first), Qt::darkYellow);
+							}
+						}
+						else
+						{
+							_progressDialog->appendText(tr("OpenChisel: Invalid camera model for cloud %1! Only single RGB-D camera supported.").arg(iter->first), Qt::darkYellow);
+							_progressDialog->setAutoClose(false);
+							break;
+						}
+					}
+					else if(!scanInfo.localTransform().isNull())
+					{
+						chisel::PointCloudPtr chiselCloud = pointCloudRGBToChisel(*iter->second, scanInfo.localTransform().inverse());
+						chisel::Transform  pose_rel_to_first_frame = (poses.at(iter->first)*scanInfo.localTransform()).toEigen3f();
+						chiselMap->IntegratePointCloud(projectionIntegrator, *chiselCloud, pose_rel_to_first_frame, farPlaneDist);
+						UDEBUG("");
+					}
+					else
+					{
+						_progressDialog->appendText(tr("OpenChisel: not valid scan info for cloud %1!").arg(iter->first), Qt::darkYellow);
+						_progressDialog->setAutoClose(false);
+						break;
+					}
+					chiselMap->UpdateMeshes();
+					UDEBUG("");
+					_progressDialog->appendText(tr("OpenChisel: Integrated cloud %1 (%2/%3) to TSDF volume").arg(iter->first).arg(cloudsAdded).arg(cloudsWithNormals.size()));
+
+					_progressDialog->incrementStep();
+					QApplication::processEvents();
+					if(_canceled)
+					{
+						return false;
+					}
+				}
+			}
+			else
+#endif
+
 			if(_ui->comboBox_pipeline->currentIndex() == 0)
 			{
 				if(_ui->comboBox_meshingApproach->currentIndex()==2)
 				{
-					_progressDialog->appendText(tr("Creating TSDF volume... "));
+					_progressDialog->appendText(tr("Creating TSDF volume with CPUTSDF... "));
 				}
 				else
 				{
@@ -1535,10 +1922,10 @@ bool ExportCloudsDialog::getExportedClouds(
 				pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr mergedClouds(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 				std::vector<pcl::Vertices> mergedPolygons;
 
-				int i=0;
+				int cloudsAdded = 1;
 				for(std::map<int, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr >::iterator iter=cloudsWithNormals.begin();
 					iter!= cloudsWithNormals.end();
-					++iter)
+					++iter,++cloudsAdded)
 				{
 					if(iter->second->isOrganized())
 					{
@@ -1606,11 +1993,11 @@ bool ExportCloudsDialog::getExportedClouds(
 										Eigen::Affine3d  pose_rel_to_first_frame = ((poses.begin()->second.inverse() * poses.at(iter->first))*models[0].localTransform()).toEigen3d();
 										if(!tsdf->integrateCloud(*util3d::transformPointCloud(iter->second, models[0].localTransform().inverse()), pcl::PointCloud<pcl::Normal>(), pose_rel_to_first_frame))
 										{
-											_progressDialog->appendText(tr("CPU-TSDF: Failed integrating cloud %1 to TSDF volume").arg(iter->first));
+											_progressDialog->appendText(tr("CPU-TSDF: Failed integrating cloud %1 (%2/%3) to TSDF volume").arg(iter->first).arg(cloudsAdded).arg(cloudsWithNormals.size()));
 										}
 										else
 										{
-											_progressDialog->appendText(tr("CPU-TSDF: Integrated cloud %1 to TSDF volume").arg(iter->first));
+											_progressDialog->appendText(tr("CPU-TSDF: Integrated cloud %1 (%2/%3) to TSDF volume").arg(iter->first).arg(cloudsAdded).arg(cloudsWithNormals.size()));
 										}
 									}
 								}
@@ -1708,7 +2095,7 @@ bool ExportCloudsDialog::getExportedClouds(
 									QApplication::processEvents();
 								}
 
-								_progressDialog->appendText(tr("Mesh %1 created with %2 polygons (%3/%4).").arg(iter->first).arg(polygons.size()).arg(++i).arg(cloudsWithNormals.size()));
+								_progressDialog->appendText(tr("Mesh %1 created with %2 polygons (%3/%4).").arg(iter->first).arg(polygons.size()).arg(cloudsAdded).arg(cloudsWithNormals.size()));
 
 								pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr denseCloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 								std::vector<pcl::Vertices> densePolygons;
@@ -1750,7 +2137,7 @@ bool ExportCloudsDialog::getExportedClouds(
 						}
 						else
 						{
-							_progressDialog->appendText(tr("Mesh %1 not created (no valid points) (%2/%3).").arg(iter->first).arg(++i).arg(cloudsWithNormals.size()));
+							_progressDialog->appendText(tr("Mesh %1 not created (no valid points) (%2/%3).").arg(iter->first).arg(cloudsAdded).arg(cloudsWithNormals.size()));
 						}
 					}
 					else
@@ -1767,7 +2154,7 @@ bool ExportCloudsDialog::getExportedClouds(
 						}
 						if(weight>=0) // don't show error for intermediate nodes
 						{
-							_progressDialog->appendText(tr("Mesh %1 not created (cloud is not organized). You may want to check cloud regeneration option (%2/%3).").arg(iter->first).arg(++i).arg(cloudsWithNormals.size()));
+							_progressDialog->appendText(tr("Mesh %1 not created (cloud is not organized). You may want to check cloud regeneration option (%2/%3).").arg(iter->first).arg(cloudsAdded).arg(cloudsWithNormals.size()));
 						}
 					}
 
@@ -1831,10 +2218,10 @@ bool ExportCloudsDialog::getExportedClouds(
 				uSleep(100);
 				QApplication::processEvents();
 
-				int i=0;
+				int cloudsAdded=1;
 				for(std::map<int, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr>::iterator iter=cloudsWithNormals.begin();
 					iter!= cloudsWithNormals.end();
-					++iter)
+					++iter,++cloudsAdded)
 				{
 					pcl::PolygonMesh::Ptr mesh(new pcl::PolygonMesh);
 					if(_ui->comboBox_meshingApproach->currentIndex() == 0)
@@ -1850,7 +2237,31 @@ bool ExportCloudsDialog::getExportedClouds(
 						poisson.setOutputPolygons(_ui->checkBox_poisson_outputPolygons->isEnabled()?_ui->checkBox_poisson_outputPolygons->isChecked():false);
 						poisson.setManifold(_ui->checkBox_poisson_manifold->isChecked());
 						poisson.setSamplesPerNode(_ui->doubleSpinBox_poisson_samples->value());
-						poisson.setDepth(_ui->spinBox_poisson_depth->value());
+						int depth = _ui->spinBox_poisson_depth->value();
+						if(depth == 0)
+						{
+							Eigen::Vector4f min,max;
+							pcl::getMinMax3D(*iter->second, min, max);
+							float mapLength = uMax3(max[0]-min[0], max[1]-min[1], max[2]-min[2]);
+							depth = 12;
+							for(int i=6; i<12; ++i)
+							{
+								if(mapLength/float(1<<i) < 0.03f)
+								{
+									depth = i;
+									break;
+								}
+							}
+							_progressDialog->appendText(tr("Poisson depth resolution chosen is %1, map size (m) = %2x%3x%4")
+									.arg(depth)
+									.arg(int(max[0]-min[0]))
+									.arg(int(max[1]-min[1]))
+									.arg(int(max[2]-min[2])));
+							QApplication::processEvents();
+							uSleep(100);
+							QApplication::processEvents();
+						}
+						poisson.setDepth(depth);
 						poisson.setIsoDivide(_ui->spinBox_poisson_iso->value());
 						poisson.setSolverDivide(_ui->spinBox_poisson_solver->value());
 						poisson.setMinDepth(_ui->spinBox_poisson_minDepth->value());
@@ -1860,7 +2271,7 @@ bool ExportCloudsDialog::getExportedClouds(
 						poisson.reconstruct(*mesh);
 					}
 
-					_progressDialog->appendText(tr("Mesh %1 created with %2 polygons (%3/%4).").arg(iter->first).arg(mesh->polygons.size()).arg(++i).arg(clouds.size()));
+					_progressDialog->appendText(tr("Mesh %1 created with %2 polygons (%3/%4).").arg(iter->first).arg(mesh->polygons.size()).arg(cloudsAdded).arg(cloudsWithNormals.size()));
 					QApplication::processEvents();
 
 					if(mesh->polygons.size()>0)
@@ -1915,7 +2326,7 @@ bool ExportCloudsDialog::getExportedClouds(
 			mc.setColorByRGB (true);
 			pcl::PolygonMesh::Ptr mesh (new pcl::PolygonMesh);
 			mc.reconstruct (*mesh);
-			_progressDialog->appendText(tr("CPU-TSDF: Creating mesh from TSDF volume...done!"));
+			_progressDialog->appendText(tr("CPU-TSDF: Creating mesh from TSDF volume...done! %1 polygons").arg(mesh->polygons.size()));
 			meshes.clear();
 
 			if(mesh->polygons.size()>0)
@@ -1981,6 +2392,78 @@ bool ExportCloudsDialog::getExportedClouds(
 						_ui->doubleSpinBox_meshDecimationFactor->isEnabled()?(float)_ui->doubleSpinBox_meshDecimationFactor->value():0.0f,
 						_ui->spinBox_meshMaxPolygons->isEnabled()?_ui->spinBox_meshMaxPolygons->value():0,
 						vertices,
+						(float)_ui->doubleSpinBox_transferColorRadius->value(),
+						!(_ui->checkBox_textureMapping->isEnabled() && _ui->checkBox_textureMapping->isChecked()),
+						_ui->checkBox_cleanMesh->isChecked(),
+						_ui->spinBox_mesh_minClusterSize->value(),
+						&texturingState);
+				meshes.insert(std::make_pair(0, mesh));
+			}
+			else
+			{
+				_progressDialog->appendText(tr("No polygons created TSDF volume!"), Qt::darkYellow);
+				_progressDialog->setAutoClose(false);
+			}
+		}
+#endif
+#ifdef RTABMAP_OPENCHISEL
+		if(chiselMap.get())
+		{
+			_progressDialog->appendText(tr("OpenChisel: Creating mesh from TSDF volume..."));
+			QApplication::processEvents();
+			uSleep(100);
+			QApplication::processEvents();
+
+			const chisel::MeshMap& meshMap = chiselMap->GetChunkManager().GetAllMeshes();
+			pcl::PolygonMesh::Ptr mesh = chiselToPolygonMesh(meshMap);
+
+			// To debug...
+			//std::string filePly = _workingDirectory.toStdString()+"/"+"chisel.ply";
+			//chiselMap->SaveAllMeshesToPLY(filePly);
+			//UWARN("Saved %s", filePly.c_str());
+
+			_progressDialog->appendText(tr("OpenChisel: Creating mesh from TSDF volume...done! %1 polygons").arg(mesh->polygons.size()));
+
+			meshes.clear();
+			if(mesh->polygons.size()>0)
+			{
+				pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr mergedClouds(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+				pcl::fromPCLPointCloud2(mesh->cloud, *mergedClouds);
+				if(_ui->checkBox_openchisel_mergeVertices->isChecked())
+				{
+					_progressDialog->appendText(tr("Filtering assembled mesh for close vertices (points=%1, polygons=%2)...").arg(mergedClouds->size()).arg(mesh->polygons.size()));
+					QApplication::processEvents();
+
+					mesh->polygons = util3d::filterCloseVerticesFromMesh(
+							mergedClouds,
+							mesh->polygons,
+							_ui->doubleSpinBox_voxelSize_assembled->value()/2.0,
+							M_PI/4,
+							true);
+
+					// filter invalid polygons
+					unsigned int count = mesh->polygons.size();
+					mesh->polygons = util3d::filterInvalidPolygons(mesh->polygons);
+					_progressDialog->appendText(tr("Filtered %1 invalid polygons.").arg(count-mesh->polygons.size()));
+					QApplication::processEvents();
+
+					// filter not used vertices
+					pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr filteredCloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+					std::vector<pcl::Vertices> filteredPolygons;
+					count = mergedClouds->size();
+					util3d::filterNotUsedVerticesFromMesh(*mergedClouds, mesh->polygons, *filteredCloud, filteredPolygons);
+					mergedClouds = filteredCloud;
+					pcl::toPCLPointCloud2(*mergedClouds, mesh->cloud);
+					mesh->polygons = filteredPolygons;
+					_progressDialog->appendText(tr("Filtered %1 duplicate vertices.").arg(count-mergedClouds->size()));
+					QApplication::processEvents();
+				}
+				TexturingState texturingState(_progressDialog, false);
+				util3d::denseMeshPostProcessing<pcl::PointXYZRGBNormal>(
+						mesh,
+						_ui->doubleSpinBox_meshDecimationFactor->isEnabled()?(float)_ui->doubleSpinBox_meshDecimationFactor->value():0.0f,
+						_ui->spinBox_meshMaxPolygons->isEnabled()?_ui->spinBox_meshMaxPolygons->value():0,
+						mergedClouds,
 						(float)_ui->doubleSpinBox_transferColorRadius->value(),
 						!(_ui->checkBox_textureMapping->isEnabled() && _ui->checkBox_textureMapping->isChecked()),
 						_ui->checkBox_cleanMesh->isChecked(),
@@ -2407,7 +2890,7 @@ std::map<int, std::pair<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr, pcl::Indic
 		const std::map<int, Transform> & poses,
 		const QMap<int, Signature> & cachedSignatures,
 		const std::map<int, std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::IndicesPtr> > & cachedClouds,
-		const std::map<int, cv::Mat> & cachedScans,
+		const std::map<int, LaserScan> & cachedScans,
 		const ParametersMap & parameters,
 		bool & has2dScans) const
 {
@@ -2429,7 +2912,8 @@ std::map<int, std::pair<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr, pcl::Indic
 			if(_ui->checkBox_regenerate->isChecked())
 			{
 				SensorData data;
-				cv::Mat image, depth, scan;
+				cv::Mat image, depth;
+				LaserScan scan;
 				if(cachedSignatures.contains(iter->first))
 				{
 					const Signature & s = cachedSignatures.find(iter->first).value();
@@ -2558,19 +3042,17 @@ std::map<int, std::pair<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr, pcl::Indic
 						}
 					}
 				}
-				else if(!_ui->checkBox_fromDepth->isChecked() && !scan.empty())
+				else if(!_ui->checkBox_fromDepth->isChecked() && !scan.isEmpty())
 				{
-					bool is2D = scan.channels() == 2;
+					bool is2D = scan.is2d();
 					pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudWithoutNormals;
 					localTransform = Transform::getIdentity();
 					Eigen::Vector3f viewPoint(0.0f,0.0f,0.0f);
-					if(!data.laserScanInfo().localTransform().isNull())
-					{
-						localTransform = data.laserScanInfo().localTransform();
-						viewPoint[0] = localTransform.x();
-						viewPoint[1] = localTransform.y();
-						viewPoint[2] = localTransform.z();
-					}
+					localTransform = scan.localTransform();
+					viewPoint[0] = localTransform.x();
+					viewPoint[1] = localTransform.y();
+					viewPoint[2] = localTransform.z();
+
 					cloudWithoutNormals = util3d::laserScanToPointCloudRGB(scan, localTransform); // put in base frame by default
 					if(cloudWithoutNormals->size())
 					{
@@ -2686,30 +3168,15 @@ std::map<int, std::pair<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr, pcl::Indic
 			else if(!_ui->checkBox_fromDepth->isChecked() && uContains(cachedScans, iter->first))
 			{
 				pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudWithoutNormals;
-				localTransform = Transform::getIdentity();
+
+				localTransform = cachedScans.at(iter->first).localTransform();
 				Eigen::Vector3f viewPoint(0.0f,0.0f,0.0f);
+				viewPoint[0] = localTransform.x();
+				viewPoint[1] = localTransform.y();
+				viewPoint[2] = localTransform.z();
 
-				LaserScanInfo info;
-				if(cachedSignatures.contains(iter->first))
-				{
-					const Signature & s = cachedSignatures.find(iter->first).value();
-					info = s.sensorData().laserScanInfo();
-				}
-				else if(_dbDriver)
-				{
-					_dbDriver->getLaserScanInfo(iter->first, info);
-				}
-
-				if(!info.localTransform().isNull())
-				{
-					viewPoint[0] = localTransform.x();
-					viewPoint[1] = localTransform.y();
-					viewPoint[2] = localTransform.z();
-					localTransform = info.localTransform().inverse();
-				}
-
-				bool is2D = cachedScans.at(iter->first).channels() == 2;
-				cloudWithoutNormals = util3d::laserScanToPointCloudRGB(cachedScans.at(iter->first)); // already in base frame
+				bool is2D = cachedScans.at(iter->first).is2d();
+				cloudWithoutNormals = util3d::laserScanToPointCloudRGB(cachedScans.at(iter->first), cachedScans.at(iter->first).localTransform());
 				if(cloudWithoutNormals->size())
 				{
 					if(_ui->doubleSpinBox_voxelSize_assembled->value()>0.0)

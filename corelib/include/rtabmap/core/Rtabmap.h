@@ -118,6 +118,7 @@ public:
 	const Statistics & getStatistics() const;
 	//bool getMetricData(int locationId, cv::Mat & rgb, cv::Mat & depth, float & depthConstant, Transform & pose, Transform & localTransform) const;
 	const std::map<int, Transform> & getLocalOptimizedPoses() const {return _optimizedPoses;}
+	const std::multimap<int, Link> & getLocalConstraints() const {return _constraints;}
 	Transform getPose(int locationId) const;
 	Transform getMapCorrection() const {return _mapCorrection;}
 	const Memory * getMemory() const {return _memory;}
@@ -128,6 +129,7 @@ public:
 	float getTimeThreshold() const {return _maxTimeAllowed;} // in ms
 	void setTimeThreshold(float maxTimeAllowed); // in ms
 
+	void setInitialPose(const Transform & initialPose);
 	int triggerNewMap();
 	bool labelLocation(int id, const std::string & label);
 	/**
@@ -188,6 +190,7 @@ private:
 	void optimizeCurrentMap(int id,
 			bool lookInDatabase,
 			std::map<int, Transform> & optimizedPoses,
+			cv::Mat & covariance,
 			std::multimap<int, Link> * constraints = 0,
 			double * error = 0,
 			int * iterationsDone = 0) const;
@@ -196,6 +199,7 @@ private:
 			const std::set<int> & ids,
 			const std::map<int, Transform> & guessPoses,
 			bool lookInDatabase,
+			cv::Mat & covariance,
 			std::multimap<int, Link> * constraints = 0,
 			double * error = 0,
 			int * iterationsDone = 0) const;
@@ -211,7 +215,9 @@ private:
 	bool _publishLastSignatureData;
 	bool _publishPdf;
 	bool _publishLikelihood;
+	bool _publishRAMUsage;
 	bool _computeRMSE;
+	bool _saveWMState;
 	float _maxTimeAllowed; // in ms
 	unsigned int _maxMemoryAllowed; // signatures count in WM
 	float _loopThr;
@@ -245,11 +251,13 @@ private:
 	bool _optimizeFromGraphEnd;
 	float _optimizationMaxLinearError;
 	bool _startNewMapOnLoopClosure;
+	bool _startNewMapOnGoodSignature;
 	float _goalReachedRadius; // meters
 	bool _goalsSavedInUserData;
 	int _pathStuckIterations;
 	float _pathLinearVelocity;
 	float _pathAngularVelocity;
+	bool _savedLocalizationIgnored;
 
 	std::pair<int, float> _loopClosureHypothesis;
 	std::pair<int, float> _highestHypothesis;

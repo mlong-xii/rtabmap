@@ -95,7 +95,7 @@ rtabmap::ParametersMap RTABMapApp::getRtabmapParameters()
 	parameters.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDOptimizeFromGraphEnd(), std::string("true")));
 	parameters.insert(rtabmap::ParametersPair(rtabmap::Parameters::kVisMinInliers(), std::string("25")));
 	parameters.insert(rtabmap::ParametersPair(rtabmap::Parameters::kVisEstimationType(), std::string("0"))); // 0=3D-3D 1=PnP
-	parameters.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDOptimizeMaxError(), std::string("0.1")));
+	parameters.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDOptimizeMaxError(), std::string("1")));
 	parameters.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDProximityPathMaxNeighbors(), std::string("0"))); // disable scan matching to merged nodes
 	parameters.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDProximityBySpace(), std::string("false"))); // just keep loop closure detection
 	parameters.insert(rtabmap::ParametersPair(rtabmap::Parameters::kRGBDLinearUpdate(), std::string("0.05")));
@@ -335,25 +335,18 @@ int RTABMapApp::openDatabase(const std::string & databasePath, bool databaseInMe
 	std::vector<std::vector<Eigen::Vector2f> > texCoords;
 #endif
 	cv::Mat textures;
-	std::map<int, rtabmap::Transform> optPoses;
 	if(!databaseSource.empty())
 	{
 		UEventsManager::post(new rtabmap::RtabmapEventInit(rtabmap::RtabmapEventInit::kInfo, "Loading optimized cloud/mesh..."));
 		rtabmap::DBDriver * driver = rtabmap::DBDriver::create();
 		if(driver->openConnection(databaseSource))
 		{
-			cloudMat = driver->loadOptimizedMesh(&optPoses, &polygons, &texCoords, &textures);
+			cloudMat = driver->loadOptimizedMesh(&polygons, &texCoords, &textures);
 			if(!cloudMat.empty())
 			{
 				LOGI("Open: Found optimized mesh! Visualizing it.");
 				optMesh_ = rtabmap::util3d::assembleTextureMesh(cloudMat, polygons, texCoords, textures, true);
 				optTexture_ = textures;
-				if(optPoses.size())
-				{
-					// just take the last as reference
-					optRefId_ = optPoses.rbegin()->first;
-					optRefPose_ = new rtabmap::Transform(optPoses.rbegin()->second);
-				}
 				if(!optTexture_.empty())
 				{
 					LOGI("Open: Texture mesh: %dx%d.", optTexture_.cols, optTexture_.rows);
@@ -440,7 +433,7 @@ int RTABMapApp::openDatabase(const std::string & databasePath, bool databaseInMe
 	}
 
 	{
-		LOGI("Creating the meshes (%d)....", poses.size());
+		LOGI("Creating the meshes (%d)....", (int)poses.size());
 		boost::mutex::scoped_lock  lock(meshesMutex_);
 		createdMeshes_.clear();
 		int i=0;
@@ -591,6 +584,14 @@ int RTABMapApp::openDatabase(const std::string & databasePath, bool databaseInMe
 	rtabmapEvents_.push_back(new rtabmap::RtabmapEvent(stats));
 
 	rtabmap_->setOptimizedPoses(poses);
+
+	// for optimized mesh
+	if(poses.size())
+	{
+		// just take the last as reference
+		optRefId_ = poses.rbegin()->first;
+		optRefPose_ = new rtabmap::Transform(poses.rbegin()->second);
+	}
 
 	if(camera_)
 	{
@@ -767,7 +768,7 @@ std::vector<pcl::Vertices> RTABMapApp::filterOrganizedPolygons(
 	unsigned int biggestClusterSize = 0;
 	for(std::map<int, std::list<int> >::iterator iter=clusters.begin(); iter!=clusters.end(); ++iter)
 	{
-		LOGD("cluster %d = %d", iter->first, iter->second.size());
+		LOGD("cluster %d = %d", iter->first, (int)iter->second.size());
 
 		if(iter->second.size() > biggestClusterSize)
 		{
@@ -1092,7 +1093,6 @@ int RTABMapApp::Render()
 						mesh.texCoords = optMesh_->tex_coordinates[0];
 						mesh.texture = optTexture_;
 					}
-
 					main_scene_.addMesh(g_optMeshId, mesh, opengl_world_T_rtabmap_world, true);
 				}
 				else
@@ -2250,11 +2250,12 @@ bool RTABMapApp::exportMesh(
 						++iter)
 					{
 						std::map<int, Mesh>::iterator jter = createdMeshes_.find(iter->first);
-						pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
+						pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
 						pcl::IndicesPtr indices(new std::vector<int>);
 						rtabmap::CameraModel model;
 						cv::Mat depth;
-						float gains[3] = {1.0f};
+						float gains[3];
+						gains[0] = gains[1] = gains[2] = 1.0f;
 						if(jter != createdMeshes_.end())
 						{
 							cloud = jter->second.cloud;
@@ -2373,7 +2374,7 @@ bool RTABMapApp::exportMesh(
 						poisson.setDepth(optimizedDepth);
 						poisson.setInputCloud(mergedClouds);
 						poisson.reconstruct(*mesh);
-						LOGI("Mesh reconstruction... done! %fs (%d polygons)", timer.ticks(), mesh->polygons.size());
+						LOGI("Mesh reconstruction... done! %fs (%d polygons)", timer.ticks(), (int)mesh->polygons.size());
 
 						if(progressionStatus_.isCanceled())
 						{
@@ -2704,7 +2705,7 @@ bool RTABMapApp::exportMesh(
 						// save in database
 						pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 						pcl::fromPCLPointCloud2(polygonMesh->cloud, *cloud);
-						cv::Mat cloudMat = rtabmap::compressData2(rtabmap::util3d::laserScanFromPointCloud(*cloud)); // for database
+						cv::Mat cloudMat = rtabmap::compressData2(rtabmap::util3d::laserScanFromPointCloud(*cloud, rtabmap::Transform(), false)); // for database
 						std::vector<std::vector<std::vector<unsigned int> > > polygons(1);
 						polygons[0].resize(polygonMesh->polygons.size());
 						for(unsigned int p=0; p<polygonMesh->polygons.size(); ++p)
@@ -2712,7 +2713,8 @@ bool RTABMapApp::exportMesh(
 							polygons[0][p] = polygonMesh->polygons[p].vertices;
 						}
 						boost::mutex::scoped_lock  lock(rtabmapMutex_);
-						rtabmap_->getMemory()->saveOptimizedMesh(cloudMat, poses, polygons);
+
+						rtabmap_->getMemory()->saveOptimizedMesh(cloudMat, polygons);
 						success = true;
 					}
 				}
@@ -2720,7 +2722,7 @@ bool RTABMapApp::exportMesh(
 				{
 					pcl::PointCloud<pcl::PointNormal>::Ptr cloud(new pcl::PointCloud<pcl::PointNormal>);
 					pcl::fromPCLPointCloud2(textureMesh->cloud, *cloud);
-					cv::Mat cloudMat = rtabmap::compressData2(rtabmap::util3d::laserScanFromPointCloud(*cloud)); // for database
+					cv::Mat cloudMat = rtabmap::compressData2(rtabmap::util3d::laserScanFromPointCloud(*cloud, rtabmap::Transform(), false)); // for database
 
 					// save in database
 					std::vector<std::vector<std::vector<unsigned int> > > polygons(textureMesh->tex_polygons.size());
@@ -2733,7 +2735,7 @@ bool RTABMapApp::exportMesh(
 						}
 					}
 					boost::mutex::scoped_lock  lock(rtabmapMutex_);
-					rtabmap_->getMemory()->saveOptimizedMesh(cloudMat, poses, polygons, textureMesh->tex_coordinates, globalTextures);
+					rtabmap_->getMemory()->saveOptimizedMesh(cloudMat, polygons, textureMesh->tex_coordinates, globalTextures);
 					success = true;
 				}
 				else
@@ -2756,7 +2758,8 @@ bool RTABMapApp::exportMesh(
 				std::map<int, Mesh>::iterator jter=createdMeshes_.find(iter->first);
 				pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
 				pcl::IndicesPtr indices(new std::vector<int>);
-				float gains[3] = {1.0f};
+				float gains[3];
+				gains[0] = gains[1] = gains[2] = 1.0f;
 				if(regenerateCloud)
 				{
 					if(jter != createdMeshes_.end())
@@ -2855,7 +2858,7 @@ bool RTABMapApp::exportMesh(
 				{
 					cv::Mat cloudMat = rtabmap::compressData2(rtabmap::util3d::laserScanFromPointCloud(*mergedClouds)); // for database
 					boost::mutex::scoped_lock  lock(rtabmapMutex_);
-					rtabmap_->getMemory()->saveOptimizedMesh(cloudMat, poses);
+					rtabmap_->getMemory()->saveOptimizedMesh(cloudMat);
 					success = true;
 				}
 			}
@@ -2885,6 +2888,20 @@ bool RTABMapApp::exportMesh(
 	}
 	exporting_ = false;
 
+	optRefId_ = 0;
+	if(optRefPose_)
+	{
+		delete optRefPose_;
+		optRefPose_ = 0;
+	}
+	if(success && poses.size())
+	{
+		// for optimized mesh
+		// just take the last as reference
+		optRefId_ = poses.rbegin()->first;
+		optRefPose_ = new rtabmap::Transform(poses.rbegin()->second);
+	}
+
 	return success;
 }
 
@@ -2893,12 +2910,6 @@ bool RTABMapApp::postExportation(bool visualize)
 	LOGI("postExportation(visualize=%d)", visualize?1:0);
 	optMesh_.reset(new pcl::TextureMesh);
 	optTexture_ = cv::Mat();
-	optRefId_ = 0;
-	if(optRefPose_)
-	{
-		delete optRefPose_;
-		optRefPose_ = 0;
-	}
 	exportedMeshUpdated_ = false;
 
 	if(visualize)
@@ -2912,22 +2923,14 @@ bool RTABMapApp::postExportation(bool visualize)
 		std::vector<std::vector<Eigen::Vector2f> > texCoords;
 #endif
 		cv::Mat textures;
-		std::map<int, rtabmap::Transform> optPoses;
 		if(rtabmap_ && rtabmap_->getMemory())
 		{
-			cloudMat = rtabmap_->getMemory()->loadOptimizedMesh(&optPoses, &polygons, &texCoords, &textures);
+			cloudMat = rtabmap_->getMemory()->loadOptimizedMesh(&polygons, &texCoords, &textures);
 			if(!cloudMat.empty())
 			{
 				LOGI("postExportation: Found optimized mesh! Visualizing it.");
 				optMesh_ = rtabmap::util3d::assembleTextureMesh(cloudMat, polygons, texCoords, textures, true);
 				optTexture_ = textures;
-
-				if(optPoses.size())
-				{
-					// just take the last as reference
-					optRefId_ = optPoses.rbegin()->first;
-					optRefPose_ = new rtabmap::Transform(optPoses.rbegin()->second);
-				}
 
 				boost::mutex::scoped_lock  lock(renderingMutex_);
 				visualizingMesh_ = true;
@@ -2973,10 +2976,9 @@ bool RTABMapApp::writeExportedMesh(const std::string & directory, const std::str
 	std::vector<std::vector<Eigen::Vector2f> > texCoords;
 #endif
 	cv::Mat textures;
-	std::map<int, rtabmap::Transform> optPoses;
 	if(rtabmap_ && rtabmap_->getMemory())
 	{
-		cloudMat = rtabmap_->getMemory()->loadOptimizedMesh(&optPoses, &polygons, &texCoords, &textures);
+		cloudMat = rtabmap_->getMemory()->loadOptimizedMesh(&polygons, &texCoords, &textures);
 		if(!cloudMat.empty())
 		{
 			LOGI("writeExportedMesh: Found optimized mesh!");
@@ -3305,6 +3307,7 @@ bool RTABMapApp::handleEvent(UEvent * event)
 			uInsert(bufferedStatsData_, std::make_pair<std::string, float>(rtabmap::Statistics::kLoopVisual_matches(), uValue(stats.data(), rtabmap::Statistics::kLoopVisual_matches(), 0.0f)));
 			uInsert(bufferedStatsData_, std::make_pair<std::string, float>(rtabmap::Statistics::kLoopRejectedHypothesis(), uValue(stats.data(), rtabmap::Statistics::kLoopRejectedHypothesis(), 0.0f)));
 			uInsert(bufferedStatsData_, std::make_pair<std::string, float>(rtabmap::Statistics::kLoopOptimization_max_error(), uValue(stats.data(), rtabmap::Statistics::kLoopOptimization_max_error(), 0.0f)));
+			uInsert(bufferedStatsData_, std::make_pair<std::string, float>(rtabmap::Statistics::kLoopOptimization_max_error_ratio(), uValue(stats.data(), rtabmap::Statistics::kLoopOptimization_max_error_ratio(), 0.0f)));
 			uInsert(bufferedStatsData_, std::make_pair<std::string, float>(rtabmap::Statistics::kMemoryRehearsal_sim(), uValue(stats.data(), rtabmap::Statistics::kMemoryRehearsal_sim(), 0.0f)));
 			uInsert(bufferedStatsData_, std::make_pair<std::string, float>(rtabmap::Statistics::kLoopHighest_hypothesis_value(), uValue(stats.data(), rtabmap::Statistics::kLoopHighest_hypothesis_value(), 0.0f)));
 			uInsert(bufferedStatsData_, std::make_pair<std::string, float>(rtabmap::Statistics::kMemoryDistance_travelled(), uValue(stats.data(), rtabmap::Statistics::kMemoryDistance_travelled(), 0.0f)));
@@ -3322,6 +3325,7 @@ bool RTABMapApp::handleEvent(UEvent * event)
 		int matches = (int)uValue(bufferedStatsData_, rtabmap::Statistics::kLoopVisual_matches(), 0.0f);
 		int rejected = (int)uValue(bufferedStatsData_, rtabmap::Statistics::kLoopRejectedHypothesis(), 0.0f);
 		float optimizationMaxError = uValue(bufferedStatsData_, rtabmap::Statistics::kLoopOptimization_max_error(), 0.0f);
+		float optimizationMaxErrorRatio = uValue(bufferedStatsData_, rtabmap::Statistics::kLoopOptimization_max_error_ratio(), 0.0f);
 		float rehearsalValue = uValue(bufferedStatsData_, rtabmap::Statistics::kMemoryRehearsal_sim(), 0.0f);
 		float hypothesis = uValue(bufferedStatsData_, rtabmap::Statistics::kLoopHighest_hypothesis_value(), 0.0f);
 		float distanceTravelled = uValue(bufferedStatsData_, rtabmap::Statistics::kMemoryDistance_travelled(), 0.0f);
@@ -3345,7 +3349,7 @@ bool RTABMapApp::handleEvent(UEvent * event)
 				jclass clazz = env->GetObjectClass(RTABMapActivity);
 				if(clazz)
 				{
-					jmethodID methodID = env->GetMethodID(clazz, "updateStatsCallback", "(IIIIFIIIIIIFIFIFFFIFFFFFF)V" );
+					jmethodID methodID = env->GetMethodID(clazz, "updateStatsCallback", "(IIIIFIIIIIIFIFIFFFFIFFFFFF)V" );
 					if(methodID)
 					{
 						env->CallVoidMethod(RTABMapActivity, methodID,
@@ -3366,6 +3370,7 @@ bool RTABMapApp::handleEvent(UEvent * event)
 								rejected,
 								rehearsalValue,
 								optimizationMaxError,
+								optimizationMaxErrorRatio,
 								distanceTravelled,
 								fastMovement,
 								x,

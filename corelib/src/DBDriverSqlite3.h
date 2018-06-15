@@ -70,8 +70,9 @@ private:
 	virtual int getTotalNodesSizeQuery() const;
 	virtual int getTotalDictionarySizeQuery() const;
 	virtual ParametersMap getLastParametersQuery() const;
-	virtual std::map<std::string, float> getStatisticsQuery(int nodeId, double & stamp) const;
+	virtual std::map<std::string, float> getStatisticsQuery(int nodeId, double & stamp, std::vector<int> * wmState) const;
 	virtual std::map<int, std::pair<std::map<std::string, float>, double> > getAllStatisticsQuery() const;
+	virtual std::map<int, std::vector<int> > getAllStatisticsWmStatesQuery() const;
 
 	virtual void executeNoResultQuery(const std::string & sql) const;
 
@@ -89,6 +90,7 @@ private:
 			int nodeId,
 			const cv::Mat & ground,
 			const cv::Mat & obstacles,
+			const cv::Mat & empty,
 			float cellSize,
 			const cv::Point3f & viewpoint) const;
 
@@ -99,9 +101,12 @@ private:
 	virtual void addStatisticsQuery(const Statistics & statistics) const;
 	virtual void savePreviewImageQuery(const cv::Mat & image) const;
 	virtual cv::Mat loadPreviewImageQuery() const;
+	virtual void saveOptimizedPosesQuery(const std::map<int, Transform> & optimizedPoses, const Transform & lastlocalizationPose) const;
+	virtual std::map<int, Transform> loadOptimizedPosesQuery(Transform * lastlocalizationPose) const;
+	virtual void save2DMapQuery(const cv::Mat & map, float xMin, float yMin, float cellSize) const;
+	virtual cv::Mat load2DMapQuery(float & xMin, float & yMin, float & cellSize) const;
 	virtual void saveOptimizedMeshQuery(
 			const cv::Mat & cloud,
-			const std::map<int, Transform> & poses,
 			const std::vector<std::vector<std::vector<unsigned int> > > & polygons,
 #if PCL_VERSION_COMPARE(>=, 1, 8, 0)
 			const std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > > & texCoords,
@@ -110,7 +115,6 @@ private:
 #endif
 			const cv::Mat & textures) const;
 	virtual cv::Mat loadOptimizedMeshQuery(
-			std::map<int, Transform> * poses,
 			std::vector<std::vector<std::vector<unsigned int> > > * polygons,
 #if PCL_VERSION_COMPARE(>=, 1, 8, 0)
 			std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > > * texCoords,
@@ -120,7 +124,7 @@ private:
 			cv::Mat * textures) const;
 
 	// Load objects
-	virtual void loadQuery(VWDictionary * dictionary) const;
+	virtual void loadQuery(VWDictionary * dictionary, bool lastStateOnly = true) const;
 	virtual void loadLastNodesQuery(std::list<Signature *> & signatures) const;
 	virtual void loadSignaturesQuery(const std::list<int> & ids, std::list<Signature *> & signatures) const;
 	virtual void loadWordsQuery(const std::set<int> & wordIds, std::list<VisualWord *> & vws) const;
@@ -128,7 +132,7 @@ private:
 
 	virtual void loadNodeDataQuery(std::list<Signature *> & signatures, bool images=true, bool scan=true, bool userData=true, bool occupancyGrid=true) const;
 	virtual bool getCalibrationQuery(int signatureId, std::vector<CameraModel> & models, StereoCameraModel & stereoModel) const;
-	virtual bool getLaserScanInfoQuery(int signatureId, LaserScanInfo & info) const;
+	virtual bool getLaserScanInfoQuery(int signatureId, LaserScan & info) const;
 	virtual bool getNodeInfoQuery(int signatureId, Transform & pose, int & mapId, int & weight, std::string & label, double & stamp, Transform & groundTruthPose, std::vector<float> & velocity, GPS & gps) const;
 	virtual void getAllNodeIdsQuery(std::set<int> & ids, bool ignoreChildren, bool ignoreBadSignatures) const;
 	virtual void getAllLinksQuery(std::multimap<int, Link> & links, bool ignoreNullLinks) const;
@@ -163,6 +167,7 @@ private:
 			int nodeId,
 			const cv::Mat & ground,
 			const cv::Mat & obstacles,
+			const cv::Mat & empty,
 			float cellSize,
 			const cv::Point3f & viewpoint) const;
 

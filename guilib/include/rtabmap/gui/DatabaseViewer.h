@@ -80,7 +80,7 @@ protected:
 	virtual void closeEvent(QCloseEvent* event);
 	virtual bool eventFilter(QObject *obj, QEvent *event);
 
-private slots:
+private Q_SLOTS:
 	void writeSettings();
 	void restoreDefaultSettings();
 	void configModified();
@@ -88,8 +88,16 @@ private slots:
 	bool closeDatabase();
 	void recoverDatabase();
 	void updateStatistics();
+	void selectObstacleColor();
+	void selectGroundColor();
+	void selectEmptyColor();
 	void editDepthImage();
 	void generateGraph();
+	void exportSaved2DMap();
+	void import2DMap();
+	void viewOptimizedMesh();
+	void exportOptimizedMesh();
+	void updateOptimizedMesh();
 	void exportDatabase();
 	void extractImages();
 	void exportPosesRaw();
@@ -179,6 +187,8 @@ private:
 	CloudViewer * occupancyGridViewer_;
 	QList<int> ids_;
 	std::map<int, int> mapIds_;
+	std::map<int, int> weights_;
+	std::map<int, std::vector<int> > wmStates_;
 	QMap<int, int> idToIndex_;
 	QList<rtabmap::Link> neighborLinks_;
 	QList<rtabmap::Link> loopLinks_;
@@ -195,9 +205,9 @@ private:
 	std::multimap<int, rtabmap::Link> linksRefined_;
 	std::multimap<int, rtabmap::Link> linksAdded_;
 	std::multimap<int, rtabmap::Link> linksRemoved_;
-	std::map<int, std::pair<cv::Mat, cv::Mat> > localMaps_; // <ground, obstacles>
+	std::map<int, std::pair<std::pair<cv::Mat, cv::Mat>, cv::Mat> > localMaps_; // < <ground, obstacles>, empty>
 	std::map<int, std::pair<float, cv::Point3f> > localMapsInfo_; // <cell size, viewpoint>
-	std::map<int, std::pair<cv::Mat, cv::Mat> > generatedLocalMaps_; // <ground, obstacles>
+	std::map<int, std::pair<std::pair<cv::Mat, cv::Mat>, cv::Mat> > generatedLocalMaps_; // < <ground, obstacles>, empty>
 	std::map<int, std::pair<float, cv::Point3f> > generatedLocalMapsInfo_; // <cell size, viewpoint>
 	std::map<int, cv::Mat> modifiedDepthImages_;
 	OctoMap * octomap_;
@@ -208,6 +218,9 @@ private:
 	bool savedMaximized_;
 	bool firstCall_;
 	QString iniFilePath_;
+
+	bool useLastOptimizedGraphAsGuess_;
+	std::map<int, Transform> lastOptimizedGraph_;
 };
 
 }

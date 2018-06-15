@@ -92,6 +92,7 @@ public:
 				int nodeId,
 				const cv::Mat & ground,
 				const cv::Mat & obstacles,
+				const cv::Mat & empty,
 				float cellSize,
 				const cv::Point3f & viewpoint);
 	void updateDepthImage(int nodeId, const cv::Mat & image);
@@ -101,9 +102,12 @@ public:
 	void addStatistics(const Statistics & statistics) const;
 	void savePreviewImage(const cv::Mat & image) const;
 	cv::Mat loadPreviewImage() const;
+	void saveOptimizedPoses(const std::map<int, Transform> & optimizedPoses, const Transform & lastlocalizationPose) const;
+	std::map<int, Transform> loadOptimizedPoses(Transform * lastlocalizationPose) const;
+	void save2DMap(const cv::Mat & map, float xMin, float yMin, float cellSize) const;
+	cv::Mat load2DMap(float & xMin, float & yMin, float & cellSize) const;
 	void saveOptimizedMesh(
 			const cv::Mat & cloud,
-			const std::map<int, Transform> & poses = std::map<int, Transform>(), // if we want to do localization afterward using optimized mesh
 			const std::vector<std::vector<std::vector<unsigned int> > > & polygons = std::vector<std::vector<std::vector<unsigned int> > >(),      // Textures -> polygons -> vertices
 #if PCL_VERSION_COMPARE(>=, 1, 8, 0)
 			const std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > > & texCoords = std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > >(), // Textures -> uv coords for each vertex of the polygons
@@ -112,7 +116,6 @@ public:
 #endif
 			const cv::Mat & textures = cv::Mat()) const; // concatenated textures (assuming square textures with all same size);
 	cv::Mat loadOptimizedMesh(
-			std::map<int, Transform> * poses = 0,
 			std::vector<std::vector<std::vector<unsigned int> > > * polygons = 0,
 #if PCL_VERSION_COMPARE(>=, 1, 8, 0)
 			std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > > * texCoords = 0,
@@ -145,13 +148,14 @@ public:
 	int getTotalNodesSize() const;
 	int getTotalDictionarySize() const;
 	ParametersMap getLastParameters() const;
-	std::map<std::string, float> getStatistics(int nodeId, double & stamp) const;
+	std::map<std::string, float> getStatistics(int nodeId, double & stamp, std::vector<int> * wmState=0) const;
 	std::map<int, std::pair<std::map<std::string, float>, double> > getAllStatistics() const;
+	std::map<int, std::vector<int> > getAllStatisticsWmStates() const;
 
 	void executeNoResult(const std::string & sql) const;
 
 	// Load objects
-	void load(VWDictionary * dictionary) const;
+	void load(VWDictionary * dictionary, bool lastStateOnly = true) const;
 	void loadLastNodes(std::list<Signature *> & signatures) const;
 	void loadSignatures(const std::list<int> & ids, std::list<Signature *> & signatures, std::set<int> * loadedFromTrash = 0);
 	void loadWords(const std::set<int> & wordIds, std::list<VisualWord *> & vws);
@@ -160,7 +164,7 @@ public:
 	void loadNodeData(std::list<Signature *> & signatures, bool images = true, bool scan = true, bool userData = true, bool occupancyGrid = true) const;
 	void getNodeData(int signatureId, SensorData & data, bool images = true, bool scan = true, bool userData = true, bool occupancyGrid = true) const;
 	bool getCalibration(int signatureId, std::vector<CameraModel> & models, StereoCameraModel & stereoModel) const;
-	bool getLaserScanInfo(int signatureId, LaserScanInfo & info) const;
+	bool getLaserScanInfo(int signatureId, LaserScan & info) const;
 	bool getNodeInfo(int signatureId, Transform & pose, int & mapId, int & weight, std::string & label, double & stamp, Transform & groundTruthPose, std::vector<float> & velocity, GPS & gps) const;
 	void loadLinks(int signatureId, std::map<int, Link> & links, Link::Type type = Link::kUndef) const;
 	void getWeight(int signatureId, int & weight) const;
@@ -197,8 +201,9 @@ private:
 	virtual int getTotalNodesSizeQuery() const = 0;
 	virtual int getTotalDictionarySizeQuery() const = 0;
 	virtual ParametersMap getLastParametersQuery() const = 0;
-	virtual std::map<std::string, float> getStatisticsQuery(int nodeId, double & stamp) const = 0;
+	virtual std::map<std::string, float> getStatisticsQuery(int nodeId, double & stamp, std::vector<int> * wmState) const = 0;
 	virtual std::map<int, std::pair<std::map<std::string, float>, double> > getAllStatisticsQuery() const = 0;
+	virtual std::map<int, std::vector<int> > getAllStatisticsWmStatesQuery() const = 0;
 
 	virtual void executeNoResultQuery(const std::string & sql) const = 0;
 
@@ -216,6 +221,7 @@ private:
 				int nodeId,
 				const cv::Mat & ground,
 				const cv::Mat & obstacles,
+				const cv::Mat & empty,
 				float cellSize,
 				const cv::Point3f & viewpoint) const = 0;
 
@@ -226,9 +232,12 @@ private:
 	virtual void addStatisticsQuery(const Statistics & statistics) const = 0;
 	virtual void savePreviewImageQuery(const cv::Mat & image) const = 0;
 	virtual cv::Mat loadPreviewImageQuery() const = 0;
+	virtual void saveOptimizedPosesQuery(const std::map<int, Transform> & optimizedPoses, const Transform & lastlocalizationPose) const = 0;
+	virtual std::map<int, Transform> loadOptimizedPosesQuery(Transform * lastlocalizationPose) const = 0;
+	virtual void save2DMapQuery(const cv::Mat & map, float xMin, float yMin, float cellSize) const = 0;
+	virtual cv::Mat load2DMapQuery(float & xMin, float & yMin, float & cellSize) const = 0;
 	virtual void saveOptimizedMeshQuery(
 				const cv::Mat & cloud,
-				const std::map<int, Transform> & poses,
 				const std::vector<std::vector<std::vector<unsigned int> > > & polygons,
 #if PCL_VERSION_COMPARE(>=, 1, 8, 0)
 				const std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > > & texCoords,
@@ -237,7 +246,6 @@ private:
 #endif
 				const cv::Mat & textures) const = 0;
 	virtual cv::Mat loadOptimizedMeshQuery(
-				std::map<int, Transform> * poses,
 				std::vector<std::vector<std::vector<unsigned int> > > * polygons,
 #if PCL_VERSION_COMPARE(>=, 1, 8, 0)
 				std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > > * texCoords,
@@ -247,7 +255,7 @@ private:
 				cv::Mat * textures) const = 0;
 
 	// Load objects
-	virtual void loadQuery(VWDictionary * dictionary) const = 0;
+	virtual void loadQuery(VWDictionary * dictionary, bool lastStateOnly = true) const = 0;
 	virtual void loadLastNodesQuery(std::list<Signature *> & signatures) const = 0;
 	virtual void loadSignaturesQuery(const std::list<int> & ids, std::list<Signature *> & signatures) const = 0;
 	virtual void loadWordsQuery(const std::set<int> & wordIds, std::list<VisualWord *> & vws) const = 0;
@@ -255,7 +263,7 @@ private:
 
 	virtual void loadNodeDataQuery(std::list<Signature *> & signatures, bool images=true, bool scan=true, bool userData=true, bool occupancyGrid=true) const = 0;
 	virtual bool getCalibrationQuery(int signatureId, std::vector<CameraModel> & models, StereoCameraModel & stereoModel) const = 0;
-	virtual bool getLaserScanInfoQuery(int signatureId, LaserScanInfo & info) const = 0;
+	virtual bool getLaserScanInfoQuery(int signatureId, LaserScan & info) const = 0;
 	virtual bool getNodeInfoQuery(int signatureId, Transform & pose, int & mapId, int & weight, std::string & label, double & stamp, Transform & groundTruthPose, std::vector<float> & velocity, GPS & gps) const = 0;
 	virtual void getAllNodeIdsQuery(std::set<int> & ids, bool ignoreChildren, bool ignoreBadSignatures) const = 0;
 	virtual void getAllLinksQuery(std::multimap<int, Link> & links, bool ignoreNullLinks) const = 0;

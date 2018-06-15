@@ -2,6 +2,7 @@
 branches:
   only:
     - master
+    - devel
 
 os: Visual Studio 2015
 
@@ -17,7 +18,7 @@ init:
 
 install:
   # Qt
-  - set QTDIR=C:\Qt\5.8\msvc2015_64
+  - set QTDIR=C:\Qt\5.10.1\msvc2015_64
   # make sure Qt bin path is before cmake bin path to avoid copying qt5 dlls from cmake before qt installation
   - set PATH=%QTDIR%\bin;%PATH%
   # Openni2
@@ -47,6 +48,19 @@ install:
   - ECHO "Installed zlib:"
   - ps: "ls \"C:/Program Files/zlib\""
   - set PATH=%PATH%;C:\Program Files\zlib\bin
+  # g2o
+  - ps: wget 'https://dl.dropboxusercontent.com/s/ht74s5pa21wokzw/g2o.exe?dl=0' -outfile g2o.exe
+  - cmd: g2o.exe -o"C:\Program Files" -y
+  - ECHO "Installed g2o:"
+  - ps: "ls \"C:/Program Files/g2o\""
+  - set PATH=%PATH%;C:\Program Files\g2o\bin
+  # GTSAM
+  - ps: wget 'https://dl.dropboxusercontent.com/s/lgz1cccs2o80eyk/GTSAM.exe?dl=0' -outfile GTSAM.exe
+  - cmd: GTSAM.exe -o"C:\Program Files" -y
+  - ECHO "Installed GTSAM:"
+  - ps: "ls \"C:/Program Files/GTSAM\""
+  - set PATH=%PATH%;C:\Program Files\GTSAM\bin
+  - set PATH=%PATH%;C:\Libraries\boost_1_67_0\lib64-msvc-14.0
   
 before_build:
   - cd c:\projects\rtabmap\build

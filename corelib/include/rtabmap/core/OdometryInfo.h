@@ -31,6 +31,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <map>
 #include "rtabmap/core/Transform.h"
 #include "rtabmap/core/RegistrationInfo.h"
+#include "rtabmap/core/CameraModel.h"
+#include "rtabmap/core/LaserScan.h"
 #include <opencv2/features2d/features2d.hpp>
 
 namespace rtabmap {
@@ -53,6 +55,7 @@ public:
 		stamp(0),
 		interval(0),
 		distanceTravelled(0.0f),
+		memoryUsage(0),
 		type(0)
 	{}
 
@@ -68,6 +71,8 @@ public:
 		output.localBundleOutliers = localBundleOutliers;
 		output.localBundleConstraints = localBundleConstraints;
 		output.localBundleTime = localBundleTime;
+		output.localBundlePoses = localBundlePoses;
+		output.localBundleModels = localBundleModels;
 		output.keyFrameAdded = keyFrameAdded;
 		output.timeEstimation = timeEstimation;
 		output.timeParticleFiltering = timeParticleFiltering;
@@ -77,6 +82,7 @@ public:
 		output.transformFiltered = transformFiltered;
 		output.transformGroundTruth = transformGroundTruth;
 		output.distanceTravelled = distanceTravelled;
+		output.memoryUsage = memoryUsage;
 		output.type = type;
 		return output;
 	}
@@ -90,6 +96,8 @@ public:
 	int localBundleOutliers;
 	int localBundleConstraints;
 	float localBundleTime;
+	std::map<int, Transform> localBundlePoses;
+	std::map<int, CameraModel> localBundleModels;
 	bool keyFrameAdded;
 	float timeEstimation;
 	float timeParticleFiltering;
@@ -99,13 +107,14 @@ public:
 	Transform transformFiltered;
 	Transform transformGroundTruth;
 	float distanceTravelled;
+	int memoryUsage; //MB
 
 	int type;
 
 	// F2M
 	std::multimap<int, cv::KeyPoint> words;
 	std::map<int, cv::Point3f> localMap;
-	cv::Mat localScanMap;
+	LaserScan localScanMap;
 
 	// F2F
 	std::vector<cv::Point2f> refCorners;

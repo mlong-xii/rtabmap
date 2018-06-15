@@ -79,6 +79,7 @@ std::map<int, Transform> OptimizerGTSAM::optimize(
 		int rootId,
 		const std::map<int, Transform> & poses,
 		const std::multimap<int, Link> & edgeConstraints,
+		cv::Mat & outputCovariance,
 		std::list<std::map<int, Transform> > * intermediateGraphes,
 		double * finalError,
 		int * iterationsDone)
@@ -119,12 +120,12 @@ std::map<int, Transform> OptimizerGTSAM::optimize(
 			const Transform & initialPose = poses.at(rootId);
 			if(isSlam2d())
 			{
-				gtsam::noiseModel::Diagonal::shared_ptr priorNoise = gtsam::noiseModel::Diagonal::Sigmas(gtsam::Vector3(0.01, 0.01, 0.01));
+				gtsam::noiseModel::Diagonal::shared_ptr priorNoise = gtsam::noiseModel::Diagonal::Variances(gtsam::Vector3(0.01, 0.01, 0.01));
 				graph.add(gtsam::PriorFactor<gtsam::Pose2>(rootId, gtsam::Pose2(initialPose.x(), initialPose.y(), initialPose.theta()), priorNoise));
 			}
 			else
 			{
-				gtsam::noiseModel::Diagonal::shared_ptr priorNoise = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 1e-4, 1e-4, 1e-4).finished());
+				gtsam::noiseModel::Diagonal::shared_ptr priorNoise = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 1e-4, 1e-4, 1e-4).finished());
 				graph.add(gtsam::PriorFactor<gtsam::Pose3>(rootId, gtsam::Pose3(initialPose.toEigen4d()), priorNoise));
 			}
 		}
@@ -160,16 +161,15 @@ std::map<int, Transform> OptimizerGTSAM::optimize(
 						Eigen::Matrix<double, 3, 3> information = Eigen::Matrix<double, 3, 3>::Identity();
 						if(!isCovarianceIgnored())
 						{
-							// For some reasons, dividing by 1000 avoids some exceptions (maybe too large numbers on optimization)
-							information(0,0) = iter->second.infMatrix().at<double>(0,0)/1000.0; // x-x
-							information(0,1) = iter->second.infMatrix().at<double>(0,1)/1000.0; // x-y
-							information(0,2) = iter->second.infMatrix().at<double>(0,5)/1000.0; // x-theta
-							information(1,0) = iter->second.infMatrix().at<double>(1,0)/1000.0; // y-x
-							information(1,1) = iter->second.infMatrix().at<double>(1,1)/1000.0; // y-y
-							information(1,2) = iter->second.infMatrix().at<double>(1,5)/1000.0; // y-theta
-							information(2,0) = iter->second.infMatrix().at<double>(5,0)/1000.0; // theta-x
-							information(2,1) = iter->second.infMatrix().at<double>(5,1)/1000.0; // theta-y
-							information(2,2) = iter->second.infMatrix().at<double>(5,5)/1000.0; // theta-theta
+							information(0,0) = iter->second.infMatrix().at<double>(0,0); // x-x
+							information(0,1) = iter->second.infMatrix().at<double>(0,1); // x-y
+							information(0,2) = iter->second.infMatrix().at<double>(0,5); // x-theta
+							information(1,0) = iter->second.infMatrix().at<double>(1,0); // y-x
+							information(1,1) = iter->second.infMatrix().at<double>(1,1); // y-y
+							information(1,2) = iter->second.infMatrix().at<double>(1,5); // y-theta
+							information(2,0) = iter->second.infMatrix().at<double>(5,0); // theta-x
+							information(2,1) = iter->second.infMatrix().at<double>(5,1); // theta-y
+							information(2,2) = iter->second.infMatrix().at<double>(5,5); // theta-theta
 						}
 
 						gtsam::noiseModel::Gaussian::shared_ptr model = gtsam::noiseModel::Gaussian::Information(information);
@@ -181,11 +181,15 @@ std::map<int, Transform> OptimizerGTSAM::optimize(
 						if(!isCovarianceIgnored())
 						{
 							memcpy(information.data(), iter->second.infMatrix().data, iter->second.infMatrix().total()*sizeof(double));
-							// For some reasons, dividing by 1000 avoids some exceptions (maybe too large numbers on optimization)
-							information = information / 1000.0;
 						}
 
-						gtsam::noiseModel::Gaussian::shared_ptr model = gtsam::noiseModel::Gaussian::Information(information);
+						Eigen::Matrix<double, 6, 6> mgtsam = Eigen::Matrix<double, 6, 6>::Identity();
+						mgtsam.block(0,0,3,3) = information.block(3,3,3,3); // cov rotation
+						mgtsam.block(3,3,3,3) = information.block(0,0,3,3); // cov translation
+						mgtsam.block(0,3,3,3) = information.block(0,3,3,3); // off diagonal
+						mgtsam.block(3,0,3,3) = information.block(3,0,3,3); // off diagonal
+						gtsam::SharedNoiseModel model = gtsam::noiseModel::Gaussian::Information(mgtsam);
+
 						graph.add(gtsam::PriorFactor<gtsam::Pose3>(id1, gtsam::Pose3(iter->second.transform().toEigen4d()), model));
 					}
 				}
@@ -221,16 +225,15 @@ std::map<int, Transform> OptimizerGTSAM::optimize(
 					Eigen::Matrix<double, 3, 3> information = Eigen::Matrix<double, 3, 3>::Identity();
 					if(!isCovarianceIgnored())
 					{
-						// For some reasons, dividing by 1000 avoids some exceptions (maybe too large numbers on optimization)
-						information(0,0) = iter->second.infMatrix().at<double>(0,0)/1000.0; // x-x
-						information(0,1) = iter->second.infMatrix().at<double>(0,1)/1000.0; // x-y
-						information(0,2) = iter->second.infMatrix().at<double>(0,5)/1000.0; // x-theta
-						information(1,0) = iter->second.infMatrix().at<double>(1,0)/1000.0; // y-x
-						information(1,1) = iter->second.infMatrix().at<double>(1,1)/1000.0; // y-y
-						information(1,2) = iter->second.infMatrix().at<double>(1,5)/1000.0; // y-theta
-						information(2,0) = iter->second.infMatrix().at<double>(5,0)/1000.0; // theta-x
-						information(2,1) = iter->second.infMatrix().at<double>(5,1)/1000.0; // theta-y
-						information(2,2) = iter->second.infMatrix().at<double>(5,5)/1000.0; // theta-theta
+						information(0,0) = iter->second.infMatrix().at<double>(0,0); // x-x
+						information(0,1) = iter->second.infMatrix().at<double>(0,1); // x-y
+						information(0,2) = iter->second.infMatrix().at<double>(0,5); // x-theta
+						information(1,0) = iter->second.infMatrix().at<double>(1,0); // y-x
+						information(1,1) = iter->second.infMatrix().at<double>(1,1); // y-y
+						information(1,2) = iter->second.infMatrix().at<double>(1,5); // y-theta
+						information(2,0) = iter->second.infMatrix().at<double>(5,0); // theta-x
+						information(2,1) = iter->second.infMatrix().at<double>(5,1); // theta-y
+						information(2,2) = iter->second.infMatrix().at<double>(5,5); // theta-theta
 					}
 					gtsam::noiseModel::Gaussian::shared_ptr model = gtsam::noiseModel::Gaussian::Information(information);
 
@@ -254,11 +257,14 @@ std::map<int, Transform> OptimizerGTSAM::optimize(
 					if(!isCovarianceIgnored())
 					{
 						memcpy(information.data(), iter->second.infMatrix().data, iter->second.infMatrix().total()*sizeof(double));
-						// For some reasons, dividing by 1000 avoids some exceptions (maybe too large numbers on optimization)
-						information = information / 1000.0;
 					}
 
-					gtsam::noiseModel::Gaussian::shared_ptr model = gtsam::noiseModel::Gaussian::Information(information);
+					Eigen::Matrix<double, 6, 6> mgtsam = Eigen::Matrix<double, 6, 6>::Identity();
+					mgtsam.block(0,0,3,3) = information.block(3,3,3,3); // cov rotation
+					mgtsam.block(3,3,3,3) = information.block(0,0,3,3); // cov translation
+					mgtsam.block(0,3,3,3) = information.block(0,3,3,3); // off diagonal
+					mgtsam.block(3,0,3,3) = information.block(3,0,3,3); // off diagonal
+					gtsam::SharedNoiseModel model = gtsam::noiseModel::Gaussian::Information(mgtsam);
 
 #ifdef RTABMAP_VERTIGO
 					if(this->isRobust() &&
@@ -306,7 +312,7 @@ std::map<int, Transform> OptimizerGTSAM::optimize(
 		UINFO("GTSAM optimizing begin (max iterations=%d, robust=%d)", iterations(), isRobust()?1:0);
 		UTimer timer;
 		int it = 0;
-		double lastError = 0.0;
+		double lastError = optimizer->error();
 		for(int i=0; i<iterations(); ++i)
 		{
 			if(intermediateGraphes && i > 0)
@@ -373,8 +379,10 @@ std::map<int, Transform> OptimizerGTSAM::optimize(
 		{
 			*iterationsDone = it;
 		}
-		UINFO("GTSAM optimizing end (%d iterations done, error=%f (initial=%f final=%f), time=%f s)", optimizer->iterations(), optimizer->error(), graph.error(initialEstimate), graph.error(optimizer->values()), timer.ticks());
+		UINFO("GTSAM optimizing end (%d iterations done, error=%f (initial=%f final=%f), time=%f s)",
+				optimizer->iterations(), optimizer->error(), graph.error(initialEstimate), graph.error(optimizer->values()), timer.ticks());
 
+		gtsam::Marginals marginals(graph, optimizer->values());
 		for(gtsam::Values::const_iterator iter=optimizer->values().begin(); iter!=optimizer->values().end(); ++iter)
 		{
 			if(iter->value.dim() > 1)
@@ -391,6 +399,42 @@ std::map<int, Transform> OptimizerGTSAM::optimize(
 				}
 			}
 		}
+
+		// compute marginals
+		try {
+			UTimer t;
+			gtsam::Marginals marginals(graph, optimizer->values());
+			gtsam::Matrix info = marginals.marginalCovariance(optimizer->values().rbegin()->key);
+			UINFO("Computed marginals = %fs (key=%d)", t.ticks(), optimizer->values().rbegin()->key);
+			if(isSlam2d())
+			{
+				UASSERT(info.cols() == 3 && info.cols() == 3);
+				outputCovariance = cv::Mat::eye(6,6,CV_64FC1);
+				outputCovariance.at<double>(0,0) = info(0,0); // x-x
+				outputCovariance.at<double>(0,1) = info(0,1); // x-y
+				outputCovariance.at<double>(0,5) = info(0,2); // x-theta
+				outputCovariance.at<double>(1,0) = info(1,0); // y-x
+				outputCovariance.at<double>(1,1) = info(1,1); // y-y
+				outputCovariance.at<double>(1,5) = info(1,2); // y-theta
+				outputCovariance.at<double>(5,0) = info(2,0); // theta-x
+				outputCovariance.at<double>(5,1) = info(2,1); // theta-y
+				outputCovariance.at<double>(5,5) = info(2,2); // theta-theta
+			}
+			else
+			{
+				UASSERT(info.cols() == 6 && info.cols() == 6);
+				Eigen::Matrix<double, 6, 6> mgtsam = Eigen::Matrix<double, 6, 6>::Identity();
+				mgtsam.block(3,3,3,3) = info.block(0,0,3,3); // cov rotation
+				mgtsam.block(0,0,3,3) = info.block(3,3,3,3); // cov translation
+				mgtsam.block(0,3,3,3) = info.block(0,3,3,3); // off diagonal
+				mgtsam.block(3,0,3,3) = info.block(3,0,3,3); // off diagonal
+				outputCovariance = cv::Mat(6,6,CV_64FC1);
+				memcpy(outputCovariance.data, mgtsam.data(), outputCovariance.total()*sizeof(double));
+			}
+		} catch(std::exception& e) {
+			cout << e.what() << endl;
+		}
+
 		delete optimizer;
 	}
 	else if(poses.size() == 1 || iterations() <= 0)

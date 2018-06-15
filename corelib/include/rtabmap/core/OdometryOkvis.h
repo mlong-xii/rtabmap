@@ -25,41 +25,42 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef CORELIB_INCLUDE_RTABMAP_CORE_LASERSCANINFO_H_
-#define CORELIB_INCLUDE_RTABMAP_CORE_LASERSCANINFO_H_
+#ifndef ODOMETRYOKVIS_H_
+#define ODOMETRYOKVIS_H_
 
-#include <rtabmap/utilite/ULogger.h>
+#include <rtabmap/core/Odometry.h>
+
+namespace okvis {
+	class ThreadedKFVio;
+}
 
 namespace rtabmap {
 
-class LaserScanInfo
+class OkvisCallbackHandler;
+class RTABMAP_EXP OdometryOkvis : public Odometry
 {
 public:
-	LaserScanInfo() :
-		maxPoints_(0),
-		maxRange_(0),
-		localTransform_(Transform::getIdentity())
-	{
-	}
+	OdometryOkvis(const rtabmap::ParametersMap & parameters = rtabmap::ParametersMap());
+	virtual ~OdometryOkvis();
 
-	LaserScanInfo(int maxPoints, float maxRange, const Transform & localTransform = Transform::getIdentity()) :
-		maxPoints_(maxPoints),
-		maxRange_(maxRange),
-		localTransform_(localTransform)
-	{
-		UASSERT(!localTransform.isNull());
-	}
-
-	int maxPoints() const {return maxPoints_;}
-	float maxRange() const {return maxRange_;}
-	Transform localTransform() const {return localTransform_;}
+	virtual void reset(const Transform & initialPose = Transform::getIdentity());
+	virtual Odometry::Type getType() {return Odometry::kTypeOkvis;}
+	virtual bool canProcessRawImages() const {return true;}
 
 private:
-	int maxPoints_;
-	float maxRange_;
-	Transform localTransform_;
+	virtual Transform computeTransform(SensorData & image, const Transform & guess = Transform(), OdometryInfo * info = 0);
+
+private:
+	std::string configFilename_;
+#ifdef RTABMAP_OKVIS
+	OkvisCallbackHandler * okvisCallbackHandler_;
+	okvis::ThreadedKFVio * okvisEstimator_;
+#endif
+	ParametersMap okvisParameters_;
+	IMU lastImu_; // only used for initialization
+	int imagesProcessed_;
 };
 
 }
 
-#endif /* CORELIB_INCLUDE_RTABMAP_CORE_LASERSCANINFO_H_ */
+#endif /* ODOMETRYOKVIS_H_ */

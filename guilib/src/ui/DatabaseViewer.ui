@@ -21,7 +21,16 @@
     <property name="spacing">
      <number>0</number>
     </property>
-    <property name="margin">
+    <property name="leftMargin">
+     <number>0</number>
+    </property>
+    <property name="topMargin">
+     <number>0</number>
+    </property>
+    <property name="rightMargin">
+     <number>0</number>
+    </property>
+    <property name="bottomMargin">
      <number>0</number>
     </property>
     <item>
@@ -52,8 +61,8 @@
           <rect>
            <x>0</x>
            <y>0</y>
-           <width>420</width>
-           <height>256</height>
+           <width>398</width>
+           <height>242</height>
           </rect>
          </property>
          <layout class="QGridLayout" name="gridLayout" columnstretch="0,1">
@@ -244,8 +253,8 @@
           <rect>
            <x>0</x>
            <y>0</y>
-           <width>420</width>
-           <height>256</height>
+           <width>397</width>
+           <height>242</height>
           </rect>
          </property>
          <layout class="QGridLayout" name="gridLayout_2" columnstretch="0,1">
@@ -425,7 +434,16 @@
       </item>
       <item row="1" column="0">
        <layout class="QHBoxLayout" name="horizontalLayout">
-        <property name="margin">
+        <property name="leftMargin">
+         <number>12</number>
+        </property>
+        <property name="topMargin">
+         <number>12</number>
+        </property>
+        <property name="rightMargin">
+         <number>12</number>
+        </property>
+        <property name="bottomMargin">
          <number>12</number>
         </property>
         <item>
@@ -481,7 +499,16 @@
       </item>
       <item row="1" column="1">
        <layout class="QHBoxLayout" name="horizontalLayout_2">
-        <property name="margin">
+        <property name="leftMargin">
+         <number>12</number>
+        </property>
+        <property name="topMargin">
+         <number>12</number>
+        </property>
+        <property name="rightMargin">
+         <number>12</number>
+        </property>
+        <property name="bottomMargin">
          <number>12</number>
         </property>
         <item>
@@ -552,7 +579,7 @@
      <x>0</x>
      <y>0</y>
      <width>1547</width>
-     <height>22</height>
+     <height>25</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -583,12 +610,20 @@
     <addaction name="actionDatabase_recovery"/>
     <addaction name="separator"/>
     <addaction name="actionSave_config"/>
+    <addaction name="actionRestore_default_GUI_settings"/>
     <addaction name="separator"/>
     <addaction name="actionGenerate_3D_map_pcd"/>
     <addaction name="actionExport"/>
     <addaction name="actionExtract_images"/>
     <addaction name="menuExport_poses"/>
     <addaction name="menuExport_GPS"/>
+    <addaction name="separator"/>
+    <addaction name="actionExport_saved_2D_map"/>
+    <addaction name="actionImport_2D_map"/>
+    <addaction name="separator"/>
+    <addaction name="actionView_optimized_mesh"/>
+    <addaction name="actionUpdate_optimized_mesh"/>
+    <addaction name="actionExport_optimized_mesh"/>
     <addaction name="separator"/>
     <addaction name="actionQuit"/>
    </widget>
@@ -609,7 +644,6 @@
     <addaction name="actionEdit_depth_image"/>
     <addaction name="separator"/>
     <addaction name="actionReset_all_changes"/>
-    <addaction name="actionRestore_default_GUI_settings"/>
     <addaction name="separator"/>
     <addaction name="actionView_3D_map"/>
    </widget>
@@ -890,11 +924,24 @@
          </property>
         </widget>
        </item>
+       <item>
+        <widget class="QCheckBox" name="checkBox_iterativeOptimization">
+         <property name="toolTip">
+          <string>Iterative optimization. Intermediate optimization graphes will be computed. Depending on the graph optimizer used, final optimization may not give the same results.</string>
+         </property>
+         <property name="text">
+          <string/>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
       </layout>
      </item>
      <item>
       <layout class="QGridLayout" name="gridLayout_5" columnstretch="0,1">
-       <item row="6" column="0">
+       <item row="9" column="0">
         <widget class="QLabel" name="label_loopClosures">
          <property name="text">
           <string/>
@@ -904,7 +951,7 @@
          </property>
         </widget>
        </item>
-       <item row="4" column="0">
+       <item row="6" column="0">
         <widget class="QLabel" name="label_timeGrid">
          <property name="text">
           <string/>
@@ -914,7 +961,7 @@
          </property>
         </widget>
        </item>
-       <item row="3" column="0">
+       <item row="5" column="0">
         <widget class="QLabel" name="label_timeOptimization">
          <property name="text">
           <string/>
@@ -927,42 +974,42 @@
        <item row="0" column="0">
         <widget class="QSpinBox" name="spinBox_optimizationsFrom"/>
        </item>
-       <item row="5" column="1">
+       <item row="8" column="1">
         <widget class="QLabel" name="label_52">
          <property name="text">
           <string>Poses</string>
          </property>
         </widget>
        </item>
-       <item row="3" column="1">
+       <item row="5" column="1">
         <widget class="QLabel" name="label_39">
          <property name="text">
           <string>Time optimization (s)</string>
          </property>
         </widget>
        </item>
-       <item row="6" column="1">
+       <item row="9" column="1">
         <widget class="QLabel" name="label_41">
          <property name="text">
           <string>Links (N, NM, G, LS, LT, U, P)</string>
          </property>
         </widget>
        </item>
-       <item row="2" column="1">
+       <item row="4" column="1">
         <widget class="QLabel" name="label_10">
          <property name="text">
           <string>Path length (m)</string>
          </property>
         </widget>
        </item>
-       <item row="4" column="1">
+       <item row="6" column="1">
         <widget class="QLabel" name="label_45">
          <property name="text">
           <string>Time grid (s)</string>
          </property>
         </widget>
        </item>
-       <item row="2" column="0">
+       <item row="4" column="0">
         <widget class="QLabel" name="label_pathLength">
          <property name="text">
           <string/>
@@ -973,11 +1020,11 @@
         </widget>
        </item>
        <item row="0" column="1">
-        <layout class="QHBoxLayout" name="horizontalLayout_7" stretch="0,1">
+        <layout class="QHBoxLayout" name="horizontalLayout_7" stretch="0,0,1">
          <item>
           <widget class="QLabel" name="label_optimizeFrom">
            <property name="text">
-            <string>Graph root</string>
+            <string>Root</string>
            </property>
           </widget>
          </item>
@@ -991,9 +1038,16 @@
            </property>
           </widget>
          </item>
+         <item>
+          <widget class="QCheckBox" name="checkBox_wmState">
+           <property name="text">
+            <string>WM</string>
+           </property>
+          </widget>
+         </item>
         </layout>
        </item>
-       <item row="5" column="0">
+       <item row="8" column="0">
         <widget class="QLabel" name="label_poses">
          <property name="text">
           <string/>
@@ -1013,8 +1067,65 @@
          </property>
         </widget>
        </item>
+       <item row="3" column="0">
+        <widget class="QCheckBox" name="checkBox_ignoreIntermediateNodes">
+         <property name="text">
+          <string/>
+         </property>
+         <property name="checked">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
        <item row="1" column="0">
         <widget class="QCheckBox" name="checkBox_alignPosesWithGroundTruth">
+         <property name="text">
+          <string/>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="7" column="0">
+        <widget class="QLabel" name="label_rmse">
+         <property name="text">
+          <string/>
+         </property>
+         <property name="textInteractionFlags">
+          <set>Qt::LinksAccessibleByMouse|Qt::TextSelectableByMouse</set>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="1">
+        <widget class="QLabel" name="label_ignoreINtermediateNdoes">
+         <property name="text">
+          <string>Ignore intermediate nodes</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="7" column="1">
+        <widget class="QLabel" name="label_rmse_title">
+         <property name="text">
+          <string>RMSE (m)</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="1">
+        <widget class="QLabel" name="label_alignScansCloudsWithGroundTruth">
+         <property name="text">
+          <string>Align scans/clouds with ground truth</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="0">
+        <widget class="QCheckBox" name="checkBox_alignScansCloudsWithGroundTruth">
          <property name="text">
           <string/>
          </property>
@@ -1043,7 +1154,16 @@
    </attribute>
    <widget class="QWidget" name="dockWidgetContents_3">
     <layout class="QVBoxLayout" name="verticalLayout_10">
-     <property name="margin">
+     <property name="leftMargin">
+      <number>0</number>
+     </property>
+     <property name="topMargin">
+      <number>0</number>
+     </property>
+     <property name="rightMargin">
+      <number>0</number>
+     </property>
+     <property name="bottomMargin">
       <number>0</number>
      </property>
      <item>
@@ -1090,22 +1210,36 @@
      <item>
       <widget class="QToolBox" name="toolBox">
        <property name="currentIndex">
-        <number>1</number>
+        <number>0</number>
        </property>
        <widget class="QWidget" name="page_3">
         <property name="geometry">
          <rect>
           <x>0</x>
           <y>0</y>
-          <width>324</width>
-          <height>188</height>
+          <width>318</width>
+          <height>219</height>
          </rect>
         </property>
         <attribute name="label">
          <string>Graph optimization</string>
         </attribute>
-        <layout class="QGridLayout" name="gridLayout_7" columnstretch="0,0,0">
-         <item row="3" column="0">
+        <layout class="QGridLayout" name="gridLayout_7" columnstretch="0,0,1">
+         <item row="0" column="2">
+          <widget class="QLabel" name="label_8">
+           <property name="text">
+            <string>Depth (0=inf)</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="2">
+          <widget class="QLabel" name="label_49">
+           <property name="text">
+            <string>Ignore local loop closures (time)</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="0">
           <widget class="QCheckBox" name="checkBox_ignoreLocalLoopSpace">
            <property name="text">
             <string/>
@@ -1115,14 +1249,114 @@
            </property>
           </widget>
          </item>
-         <item row="2" column="2">
+         <item row="3" column="2">
           <widget class="QLabel" name="label_48">
            <property name="text">
             <string>Ignore global loop closures</string>
            </property>
           </widget>
          </item>
-         <item row="0" column="1">
+         <item row="2" column="2">
+          <widget class="QLabel" name="label_35">
+           <property name="text">
+            <string>Ignore pose correction</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QCheckBox" name="checkBox_ignorePoseCorrection">
+           <property name="text">
+            <string/>
+           </property>
+           <property name="checked">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="0">
+          <widget class="QCheckBox" name="checkBox_ignoreLocalLoopTime">
+           <property name="text">
+            <string/>
+           </property>
+           <property name="checked">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item row="7" column="0">
+          <spacer name="verticalSpacer_3">
+           <property name="orientation">
+            <enum>Qt::Vertical</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>0</width>
+             <height>40</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item row="6" column="0">
+          <widget class="QCheckBox" name="checkBox_ignoreUserLoop">
+           <property name="text">
+            <string/>
+           </property>
+           <property name="checked">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="2">
+          <widget class="QLabel" name="label_50">
+           <property name="text">
+            <string>Ignore user loop closures</string>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="0">
+          <widget class="QCheckBox" name="checkBox_ignoreGlobalLoop">
+           <property name="text">
+            <string/>
+           </property>
+           <property name="checked">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="2">
+          <widget class="QLabel" name="label_47">
+           <property name="text">
+            <string>Ignore local loop closures (space)</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="2">
+          <widget class="QLabel" name="label_scale_title">
+           <property name="text">
+            <string>Scale</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QDoubleSpinBox" name="doubleSpinBox_optimizationScale">
+           <property name="decimals">
+            <number>3</number>
+           </property>
+           <property name="minimum">
+            <double>0.100000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>9.900000000000000</double>
+           </property>
+           <property name="singleStep">
+            <double>0.001000000000000</double>
+           </property>
+           <property name="value">
+            <double>1.000000000000000</double>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="0">
           <widget class="QSpinBox" name="spinBox_optimizationDepth">
            <property name="suffix">
             <string/>
@@ -1138,94 +1372,6 @@
            </property>
           </widget>
          </item>
-         <item row="1" column="2">
-          <widget class="QLabel" name="label_35">
-           <property name="text">
-            <string>Ignore pose correction</string>
-           </property>
-          </widget>
-         </item>
-         <item row="1" column="0">
-          <widget class="QCheckBox" name="checkBox_ignorePoseCorrection">
-           <property name="text">
-            <string/>
-           </property>
-           <property name="checked">
-            <bool>false</bool>
-           </property>
-          </widget>
-         </item>
-         <item row="4" column="0">
-          <widget class="QCheckBox" name="checkBox_ignoreLocalLoopTime">
-           <property name="text">
-            <string/>
-           </property>
-           <property name="checked">
-            <bool>false</bool>
-           </property>
-          </widget>
-         </item>
-         <item row="6" column="0">
-          <spacer name="verticalSpacer_3">
-           <property name="orientation">
-            <enum>Qt::Vertical</enum>
-           </property>
-           <property name="sizeHint" stdset="0">
-            <size>
-             <width>0</width>
-             <height>40</height>
-            </size>
-           </property>
-          </spacer>
-         </item>
-         <item row="0" column="2">
-          <widget class="QLabel" name="label_8">
-           <property name="text">
-            <string>Depth (0=inf)</string>
-           </property>
-          </widget>
-         </item>
-         <item row="5" column="2">
-          <widget class="QLabel" name="label_50">
-           <property name="text">
-            <string>Ignore user loop closures</string>
-           </property>
-          </widget>
-         </item>
-         <item row="3" column="2">
-          <widget class="QLabel" name="label_47">
-           <property name="text">
-            <string>Ignore local loop closures (space)</string>
-           </property>
-          </widget>
-         </item>
-         <item row="5" column="0">
-          <widget class="QCheckBox" name="checkBox_ignoreUserLoop">
-           <property name="text">
-            <string/>
-           </property>
-           <property name="checked">
-            <bool>false</bool>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="0">
-          <widget class="QCheckBox" name="checkBox_ignoreGlobalLoop">
-           <property name="text">
-            <string/>
-           </property>
-           <property name="checked">
-            <bool>false</bool>
-           </property>
-          </widget>
-         </item>
-         <item row="4" column="2">
-          <widget class="QLabel" name="label_49">
-           <property name="text">
-            <string>Ignore local loop closures (time)</string>
-           </property>
-          </widget>
-         </item>
         </layout>
        </widget>
        <widget class="QWidget" name="page_4">
@@ -1233,8 +1379,8 @@
          <rect>
           <x>0</x>
           <y>0</y>
-          <width>296</width>
-          <height>732</height>
+          <width>282</width>
+          <height>845</height>
          </rect>
         </property>
         <attribute name="label">
@@ -1242,8 +1388,8 @@
         </attribute>
         <layout class="QVBoxLayout" name="verticalLayout_16">
          <item>
-          <layout class="QGridLayout" name="gridLayout_9" columnstretch="0,1">
-           <item row="7" column="1">
+          <layout class="QGridLayout" name="gridLayout_9" columnstretch="0,0">
+           <item row="10" column="1">
             <widget class="QLabel" name="label_51">
              <property name="text">
               <string>Gain compensation radius (Constraints view)</string>
@@ -1253,7 +1399,7 @@
              </property>
             </widget>
            </item>
-           <item row="7" column="0">
+           <item row="10" column="0">
             <widget class="QDoubleSpinBox" name="doubleSpinBox_gainCompensationRadius">
              <property name="suffix">
               <string> m</string>
@@ -1275,14 +1421,14 @@
              </property>
             </widget>
            </item>
-           <item row="2" column="1">
+           <item row="4" column="1">
             <widget class="QLabel" name="label_53">
              <property name="text">
               <string>OctoMap</string>
              </property>
             </widget>
            </item>
-           <item row="8" column="1">
+           <item row="11" column="1">
             <widget class="QLabel" name="label_54">
              <property name="text">
               <string>Voxel size (for clouds and scans)</string>
@@ -1292,48 +1438,24 @@
              </property>
             </widget>
            </item>
-           <item row="1" column="1">
-            <widget class="QLabel" name="label_44">
-             <property name="text">
-              <string>Errode</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="0">
-            <widget class="QCheckBox" name="checkBox_gridErode">
-             <property name="text">
-              <string/>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="1">
-            <widget class="QLabel" name="label_46">
-             <property name="text">
-              <string>Grid cell size</string>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="0">
-            <widget class="QDoubleSpinBox" name="doubleSpinBox_gridCellSize">
-             <property name="decimals">
-              <number>3</number>
-             </property>
-             <property name="minimum">
-              <double>0.001000000000000</double>
-             </property>
-             <property name="singleStep">
-              <double>0.010000000000000</double>
-             </property>
-            </widget>
-           </item>
-           <item row="2" column="0">
+           <item row="4" column="0">
             <widget class="QCheckBox" name="checkBox_octomap">
              <property name="text">
               <string/>
              </property>
             </widget>
            </item>
-           <item row="8" column="0">
+           <item row="9" column="0">
+            <widget class="QCheckBox" name="checkBox_grid_regenerateFromSavedGrid">
+             <property name="text">
+              <string/>
+             </property>
+             <property name="checked">
+              <bool>false</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="11" column="0">
             <widget class="QDoubleSpinBox" name="doubleSpinBox_voxelSize">
              <property name="suffix">
               <string> m</string>
@@ -1355,27 +1477,7 @@
              </property>
             </widget>
            </item>
-           <item row="5" column="0">
-            <widget class="QCheckBox" name="checkBox_grid_cubes">
-             <property name="text">
-              <string/>
-             </property>
-             <property name="checked">
-              <bool>false</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="4" column="0">
-            <widget class="QCheckBox" name="checkBox_grid_empty">
-             <property name="text">
-              <string/>
-             </property>
-             <property name="checked">
-              <bool>false</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="6" column="0">
+           <item row="8" column="0">
             <widget class="QSpinBox" name="spinBox_grid_depth">
              <property name="prefix">
               <string/>
@@ -1391,26 +1493,158 @@
              </property>
             </widget>
            </item>
-           <item row="4" column="1">
-            <widget class="QLabel" name="label_octomap_empty">
+           <item row="0" column="0">
+            <widget class="QCheckBox" name="checkBox_grid_empty">
              <property name="text">
-              <string>OctoMap: Empty space</string>
+              <string/>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
              </property>
             </widget>
            </item>
-           <item row="5" column="1">
+           <item row="7" column="1">
             <widget class="QLabel" name="label_octomap_cubes">
              <property name="text">
-              <string>OctoMap: Cubes rendering</string>
+              <string>OctoMap: Rendering type</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
              </property>
             </widget>
            </item>
-           <item row="6" column="1">
+           <item row="8" column="1">
             <widget class="QLabel" name="label_octomap_depth">
              <property name="text">
               <string>OctoMap: Tree depth</string>
              </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
             </widget>
+           </item>
+           <item row="9" column="1">
+            <widget class="QLabel" name="label_55">
+             <property name="text">
+              <string>Local grid: regenerate from saved grid instead of sensors</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="7" column="0">
+            <widget class="QComboBox" name="comboBox_octomap_rendering_type">
+             <item>
+              <property name="text">
+               <string>Point Cloud</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Cube</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Volume</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QLabel" name="label_octomap_empty">
+             <property name="text">
+              <string>Show empty space</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="1">
+            <widget class="QLabel" name="label_octomap_empty_3">
+             <property name="text">
+              <string>Ground cell color</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QLabel" name="label_octomap_empty_2">
+             <property name="text">
+              <string>Obstacle cell color</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="1">
+            <widget class="QLabel" name="label_octomap_empty_4">
+             <property name="text">
+              <string>Empty cell color</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="0">
+            <layout class="QHBoxLayout" name="horizontalLayout_9">
+             <item>
+              <widget class="QToolButton" name="toolButton_groundColor">
+               <property name="text">
+                <string>...</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLineEdit" name="lineEdit_groundColor">
+               <property name="readOnly">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item row="1" column="0">
+            <layout class="QHBoxLayout" name="horizontalLayout_11">
+             <item>
+              <widget class="QToolButton" name="toolButton_obstacleColor">
+               <property name="text">
+                <string>...</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLineEdit" name="lineEdit_obstacleColor">
+               <property name="readOnly">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item row="3" column="0">
+            <layout class="QHBoxLayout" name="horizontalLayout_12">
+             <item>
+              <widget class="QToolButton" name="toolButton_emptyColor">
+               <property name="text">
+                <string>...</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLineEdit" name="lineEdit_emptyColor">
+               <property name="readOnly">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
            </item>
           </layout>
          </item>
@@ -1653,8 +1887,8 @@
          <rect>
           <x>0</x>
           <y>0</y>
-          <width>201</width>
-          <height>126</height>
+          <width>205</width>
+          <height>117</height>
          </rect>
         </property>
         <attribute name="label">
@@ -1753,8 +1987,8 @@
          <rect>
           <x>0</x>
           <y>0</y>
-          <width>186</width>
-          <height>496</height>
+          <width>185</width>
+          <height>487</height>
          </rect>
         </property>
         <attribute name="label">
@@ -1856,7 +2090,16 @@
      <property name="spacing">
       <number>0</number>
      </property>
-     <property name="margin">
+     <property name="leftMargin">
+      <number>0</number>
+     </property>
+     <property name="topMargin">
+      <number>0</number>
+     </property>
+     <property name="rightMargin">
+      <number>0</number>
+     </property>
+     <property name="bottomMargin">
       <number>0</number>
      </property>
      <item>
@@ -1969,7 +2212,16 @@
      <property name="spacing">
       <number>0</number>
      </property>
-     <property name="margin">
+     <property name="leftMargin">
+      <number>0</number>
+     </property>
+     <property name="topMargin">
+      <number>0</number>
+     </property>
+     <property name="rightMargin">
+      <number>0</number>
+     </property>
+     <property name="bottomMargin">
       <number>0</number>
      </property>
      <item>
@@ -2100,7 +2352,16 @@
    </attribute>
    <widget class="QWidget" name="dockWidgetContents_7">
     <layout class="QVBoxLayout" name="verticalLayout_13">
-     <property name="margin">
+     <property name="leftMargin">
+      <number>0</number>
+     </property>
+     <property name="topMargin">
+      <number>0</number>
+     </property>
+     <property name="rightMargin">
+      <number>0</number>
+     </property>
+     <property name="bottomMargin">
       <number>0</number>
      </property>
      <item>
@@ -2118,7 +2379,16 @@
    </attribute>
    <widget class="QWidget" name="dockWidgetContents_5">
     <layout class="QVBoxLayout" name="verticalLayout_7">
-     <property name="margin">
+     <property name="leftMargin">
+      <number>0</number>
+     </property>
+     <property name="topMargin">
+      <number>0</number>
+     </property>
+     <property name="rightMargin">
+      <number>0</number>
+     </property>
+     <property name="bottomMargin">
       <number>0</number>
      </property>
      <item>
@@ -2163,7 +2433,16 @@
      <property name="spacing">
       <number>0</number>
      </property>
-     <property name="margin">
+     <property name="leftMargin">
+      <number>0</number>
+     </property>
+     <property name="topMargin">
+      <number>0</number>
+     </property>
+     <property name="rightMargin">
+      <number>0</number>
+     </property>
+     <property name="bottomMargin">
       <number>0</number>
      </property>
      <item>
@@ -2353,6 +2632,31 @@
   <action name="actionClose_database">
    <property name="text">
     <string>Close database</string>
+   </property>
+  </action>
+  <action name="actionExport_saved_2D_map">
+   <property name="text">
+    <string>Export saved 2D map...</string>
+   </property>
+  </action>
+  <action name="actionImport_2D_map">
+   <property name="text">
+    <string>Import 2D map...</string>
+   </property>
+  </action>
+  <action name="actionView_optimized_mesh">
+   <property name="text">
+    <string>View optimized mesh</string>
+   </property>
+  </action>
+  <action name="actionExport_optimized_mesh">
+   <property name="text">
+    <string>Export optimized mesh...</string>
+   </property>
+  </action>
+  <action name="actionUpdate_optimized_mesh">
+   <property name="text">
+    <string>Update optimized mesh...</string>
    </property>
   </action>
  </widget>

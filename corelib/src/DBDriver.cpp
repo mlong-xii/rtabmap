@@ -245,11 +245,11 @@ ParametersMap DBDriver::getLastParameters() const
 	return parameters;
 }
 
-std::map<std::string, float> DBDriver::getStatistics(int nodeId, double & stamp) const
+std::map<std::string, float> DBDriver::getStatistics(int nodeId, double & stamp, std::vector<int> * wmState) const
 {
 	std::map<std::string, float> statistics;
 	_dbSafeAccessMutex.lock();
-	statistics = getStatisticsQuery(nodeId, stamp);
+	statistics = getStatisticsQuery(nodeId, stamp, wmState);
 	_dbSafeAccessMutex.unlock();
 	return statistics;
 }
@@ -261,6 +261,15 @@ std::map<int, std::pair<std::map<std::string, float>, double> > DBDriver::getAll
 	statistics = getAllStatisticsQuery();
 	_dbSafeAccessMutex.unlock();
 	return statistics;
+}
+
+std::map<int, std::vector<int> > DBDriver::getAllStatisticsWmStates() const
+{
+	std::map<int, std::vector<int> > wmStates;
+	_dbSafeAccessMutex.lock();
+	wmStates = getAllStatisticsWmStatesQuery();
+	_dbSafeAccessMutex.unlock();
+	return wmStates;
 }
 
 std::string DBDriver::getDatabaseVersion() const
@@ -427,7 +436,7 @@ void DBDriver::saveOrUpdate(const std::vector<Signature *> & signatures)
 
 void DBDriver::saveOrUpdate(const std::vector<VisualWord *> & words) const
 {
-	ULOGGER_DEBUG("");
+	ULOGGER_DEBUG("words.size=%d", (int)words.size());
 	std::list<VisualWord *> toSave;
 	std::list<VisualWord *> toUpdate;
 	if(this->isConnected() && words.size())
@@ -475,17 +484,19 @@ void DBDriver::updateOccupancyGrid(
 		int nodeId,
 		const cv::Mat & ground,
 		const cv::Mat & obstacles,
+		const cv::Mat & empty,
 		float cellSize,
 		const cv::Point3f & viewpoint)
 {
 	_dbSafeAccessMutex.lock();
 	//just to make sure the occupancy grids are compressed for convenience
 	SensorData data;
-	data.setOccupancyGrid(ground, obstacles, cellSize, viewpoint);
+	data.setOccupancyGrid(ground, obstacles, empty, cellSize, viewpoint);
 	this->updateOccupancyGridQuery(
 			nodeId,
 			data.gridGroundCellsCompressed(),
 			data.gridObstacleCellsCompressed(),
+			data.gridEmptyCellsCompressed(),
 			cellSize,
 			viewpoint);
 	_dbSafeAccessMutex.unlock();
@@ -500,10 +511,10 @@ void DBDriver::updateDepthImage(int nodeId, const cv::Mat & image)
 	_dbSafeAccessMutex.unlock();
 }
 
-void DBDriver::load(VWDictionary * dictionary) const
+void DBDriver::load(VWDictionary * dictionary, bool lastStateOnly) const
 {
 	_dbSafeAccessMutex.lock();
-	this->loadQuery(dictionary);
+	this->loadQuery(dictionary, lastStateOnly);
 	_dbSafeAccessMutex.unlock();
 }
 
@@ -640,7 +651,7 @@ void DBDriver::getNodeData(
 	{
 		const Signature * s = _trashSignatures.at(signatureId);
 		if(!s->sensorData().imageCompressed().empty() ||
-			!s->sensorData().laserScanCompressed().empty() ||
+			!s->sensorData().laserScanCompressed().isEmpty() ||
 			!s->sensorData().userDataCompressed().empty() ||
 			s->sensorData().gridCellSize() != 0.0f ||
 			!s->isSaved())
@@ -691,7 +702,7 @@ bool DBDriver::getCalibration(
 
 bool DBDriver::getLaserScanInfo(
 		int signatureId,
-		LaserScanInfo & info) const
+		LaserScan & info) const
 {
 	UDEBUG("");
 	bool found = false;
@@ -699,7 +710,7 @@ bool DBDriver::getLaserScanInfo(
 	_trashesMutex.lock();
 	if(uContains(_trashSignatures, signatureId))
 	{
-		info = _trashSignatures.at(signatureId)->sensorData().laserScanInfo();
+		info = _trashSignatures.at(signatureId)->sensorData().laserScanCompressed();
 		found = true;
 	}
 	_trashesMutex.unlock();
@@ -1050,9 +1061,37 @@ cv::Mat DBDriver::loadPreviewImage() const
 	return image;
 }
 
+void DBDriver::saveOptimizedPoses(const std::map<int, Transform> & optimizedPoses, const Transform & lastlocalizationPose) const
+{
+	_dbSafeAccessMutex.lock();
+	saveOptimizedPosesQuery(optimizedPoses, lastlocalizationPose);
+	_dbSafeAccessMutex.unlock();
+}
+std::map<int, Transform> DBDriver::loadOptimizedPoses(Transform * lastlocalizationPose) const
+{
+	_dbSafeAccessMutex.lock();
+	std::map<int, Transform> poses = loadOptimizedPosesQuery(lastlocalizationPose);
+	_dbSafeAccessMutex.unlock();
+	return poses;
+}
+
+void DBDriver::save2DMap(const cv::Mat & map, float xMin, float yMin, float cellSize) const
+{
+	_dbSafeAccessMutex.lock();
+	save2DMapQuery(map, xMin, yMin, cellSize);
+	_dbSafeAccessMutex.unlock();
+}
+
+cv::Mat DBDriver::load2DMap(float & xMin, float & yMin, float & cellSize) const
+{
+	_dbSafeAccessMutex.lock();
+	cv::Mat map = load2DMapQuery(xMin, yMin, cellSize);
+	_dbSafeAccessMutex.unlock();
+	return map;
+}
+
 void DBDriver::saveOptimizedMesh(
 			const cv::Mat & cloud,
-			const std::map<int, Transform> & poses,
 			const std::vector<std::vector<std::vector<unsigned int> > > & polygons,
 #if PCL_VERSION_COMPARE(>=, 1, 8, 0)
 			const std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > > & texCoords,
@@ -1062,22 +1101,21 @@ void DBDriver::saveOptimizedMesh(
 			const cv::Mat & textures) const
 {
 	_dbSafeAccessMutex.lock();
-	saveOptimizedMeshQuery(cloud, poses, polygons, texCoords, textures);
+	saveOptimizedMeshQuery(cloud, polygons, texCoords, textures);
 	_dbSafeAccessMutex.unlock();
 }
 
 cv::Mat DBDriver::loadOptimizedMesh(
-				std::map<int, Transform> * poses,
 				std::vector<std::vector<std::vector<unsigned int> > > * polygons,
 #if PCL_VERSION_COMPARE(>=, 1, 8, 0)
-				std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>> > * texCoords,
+				std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > > * texCoords,
 #else
 				std::vector<std::vector<Eigen::Vector2f> > * texCoords,
 #endif
 				cv::Mat * textures) const
 {
 	_dbSafeAccessMutex.lock();
-	cv::Mat cloud = loadOptimizedMeshQuery(poses, polygons, texCoords, textures);
+	cv::Mat cloud = loadOptimizedMeshQuery(polygons, texCoords, textures);
 	_dbSafeAccessMutex.unlock();
 	return cloud;
 }

@@ -64,6 +64,7 @@ class RTABMAP_EXP Statistics
 	RTABMAP_STATS(Loop, Visual_matches,);
 	RTABMAP_STATS(Loop, Last_id,);
 	RTABMAP_STATS(Loop, Optimization_max_error, m);
+	RTABMAP_STATS(Loop, Optimization_max_error_ratio, );
 	RTABMAP_STATS(Loop, Optimization_error, );
 	RTABMAP_STATS(Loop, Optimization_iterations, );
 
@@ -102,10 +103,12 @@ class RTABMAP_EXP Statistics
 	RTABMAP_STATS(Memory, Odometry_variance_ang,);
 	RTABMAP_STATS(Memory, Odometry_variance_lin,);
 	RTABMAP_STATS(Memory, Distance_travelled, m);
+	RTABMAP_STATS(Memory, RAM_usage, MB);
 
 	RTABMAP_STATS(Timing, Memory_update, ms);
 	RTABMAP_STATS(Timing, Neighbor_link_refining, ms);
 	RTABMAP_STATS(Timing, Proximity_by_time, ms);
+	RTABMAP_STATS(Timing, Proximity_by_space_visual, ms);
 	RTABMAP_STATS(Timing, Proximity_by_space, ms);
 	RTABMAP_STATS(Timing, Cleaning_neighbors, ms);
 	RTABMAP_STATS(Timing, Reactivation, ms);
@@ -129,14 +132,13 @@ class RTABMAP_EXP Statistics
 	RTABMAP_STATS(TimingMem, Subpixel, ms);
 	RTABMAP_STATS(TimingMem, Stereo_correspondences, ms);
 	RTABMAP_STATS(TimingMem, Descriptors_extraction, ms);
+	RTABMAP_STATS(TimingMem, Rectification, ms);
 	RTABMAP_STATS(TimingMem, Keypoints_3D, ms);
 	RTABMAP_STATS(TimingMem, Joining_dictionary_update, ms);
 	RTABMAP_STATS(TimingMem, Add_new_words, ms);
 	RTABMAP_STATS(TimingMem, Compressing_data, ms);
 	RTABMAP_STATS(TimingMem, Post_decimation, ms);
-	RTABMAP_STATS(TimingMem, Scan_downsampling, ms);
-	RTABMAP_STATS(TimingMem, Scan_voxel_filtering, ms);
-	RTABMAP_STATS(TimingMem, Scan_normals, ms);
+	RTABMAP_STATS(TimingMem, Scan_filtering, ms);
 	RTABMAP_STATS(TimingMem, Occupancy_grid, ms);
 
 	RTABMAP_STATS(Keypoint, Dictionary_size, words);
@@ -181,6 +183,7 @@ public:
 	void setConstraints(const std::multimap<int, Link> & constraints) {_constraints = constraints;}
 	void setMapCorrection(const Transform & mapCorrection) {_mapCorrection = mapCorrection;}
 	void setLoopClosureTransform(const Transform & loopClosureTransform) {_loopClosureTransform = loopClosureTransform;}
+	void setLocalizationCovariance(const cv::Mat & covariance) {_localizationCovariance = covariance;}
 	void setWeights(const std::map<int, int> & weights) {_weights = weights;}
 	void setPosterior(const std::map<int, float> & posterior) {_posterior = posterior;}
 	void setLikelihood(const std::map<int, float> & likelihood) {_likelihood = likelihood;}
@@ -188,6 +191,7 @@ public:
 	void setLocalPath(const std::vector<int> & localPath) {_localPath=localPath;}
 	void setCurrentGoalId(int goal) {_currentGoalId=goal;}
 	void setReducedIds(const std::map<int, int> & reducedIds) {_reducedIds = reducedIds;}
+	void setWmState(const std::vector<int> & state) {_wmState = state;}
 
 	// getters
 	bool extended() const {return _extended;}
@@ -202,6 +206,7 @@ public:
 	const std::multimap<int, Link> & constraints() const {return _constraints;}
 	const Transform & mapCorrection() const {return _mapCorrection;}
 	const Transform & loopClosureTransform() const {return _loopClosureTransform;}
+	const cv::Mat & localizationCovariance() const {return _localizationCovariance;}
 	const std::map<int, int> & weights() const {return _weights;}
 	const std::map<int, float> & posterior() const {return _posterior;}
 	const std::map<int, float> & likelihood() const {return _likelihood;}
@@ -209,6 +214,7 @@ public:
 	const std::vector<int> & localPath() const {return _localPath;}
 	int currentGoalId() const {return _currentGoalId;}
 	const std::map<int, int> & reducedIds() const {return _reducedIds;}
+	const std::vector<int> & wmState() const {return _wmState;}
 
 	const std::map<std::string, float> & data() const {return _data;}
 
@@ -226,6 +232,7 @@ private:
 	std::multimap<int, Link> _constraints;
 	Transform _mapCorrection;
 	Transform _loopClosureTransform;
+	cv::Mat _localizationCovariance;
 
 	std::map<int, int> _weights;
 	std::map<int, float> _posterior;
@@ -236,6 +243,8 @@ private:
 	int _currentGoalId;
 
 	std::map<int, int> _reducedIds;
+
+	std::vector<int> _wmState;
 
 	// Format for statistics (Plottable statistics must go in that map) :
 	// {"Group/Name/Unit", value}

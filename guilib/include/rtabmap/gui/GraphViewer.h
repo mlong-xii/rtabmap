@@ -113,6 +113,7 @@ public:
 
 	// setters
 	void setWorkingDirectory(const QString & path);
+	void setNodeVisible(bool visible);
 	void setNodeRadius(float radius);
 	void setLinkWidth(float width);
 	void setNodeColor(const QColor & color);
@@ -144,11 +145,11 @@ public:
 	void setGPSGraphVisible(bool visible);
 	void setOrientationENU(bool enabled);
 
-signals:
+Q_SIGNALS:
 	void configChanged();
 	void mapShownRequested();
 
-public slots:
+public Q_SLOTS:
 	void restoreDefaults();
 
 protected:
@@ -187,6 +188,7 @@ private:
 	QMultiMap<int, LinkItem*> _gpsLinkItems;
 	QMultiMap<int, LinkItem*> _localPathLinkItems;
 	QMultiMap<int, LinkItem*> _globalPathLinkItems;
+	bool _nodeVisible;
 	float _nodeRadius;
 	float _linkWidth;
 	QGraphicsPixmapItem * _gridMap;

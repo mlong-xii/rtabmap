@@ -36,7 +36,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "rtabmap/core/StereoDense.h"
 #include "rtabmap/core/DBReader.h"
 #include "rtabmap/core/clams/discrete_depth_distortion_model.h"
-
+#include <opencv2/stitching/detail/exposure_compensate.hpp>
 #include <rtabmap/utilite/UTimer.h>
 #include <rtabmap/utilite/ULogger.h>
 
@@ -49,6 +49,7 @@ namespace rtabmap
 CameraThread::CameraThread(Camera * camera, const ParametersMap & parameters) :
 		_camera(camera),
 		_mirroring(false),
+		_stereoExposureCompensation(false),
 		_colorOnly(false),
 		_imageDecimation(1),
 		_stereoToDepth(false),
@@ -122,6 +123,7 @@ void CameraThread::enableBilateralFiltering(float sigmaS, float sigmaR)
 void CameraThread::mainLoopBegin()
 {
 	ULogger::registerCurrentThread("Camera");
+	_camera->resetTimer();
 }
 
 void CameraThread::mainLoop()
@@ -268,6 +270,33 @@ void CameraThread::postUpdate(SensorData * dataPtr, CameraInfo * info) const
 		}
 		if(info) info->timeMirroring = timer.ticks();
 	}
+
+	if(_stereoExposureCompensation && !data.imageRaw().empty() && !data.rightRaw().empty())
+	{
+#if CV_MAJOR_VERSION < 3
+		UWARN("Stereo exposure compensation not implemented for OpenCV version under 3.");
+#else
+		UDEBUG("");
+		UTimer timer;
+		cv::Ptr<cv::detail::ExposureCompensator> compensator = cv::detail::ExposureCompensator::createDefault(cv::detail::ExposureCompensator::GAIN);
+		std::vector<cv::Point> topLeftCorners(2, cv::Point(0,0));
+		std::vector<cv::UMat> images;
+		std::vector<cv::UMat> masks(2, cv::UMat(data.imageRaw().size(), CV_8UC1,  cv::Scalar(255)));
+		images.push_back(data.imageRaw().getUMat(cv::ACCESS_READ));
+		images.push_back(data.rightRaw().getUMat(cv::ACCESS_READ));
+		compensator->feed(topLeftCorners, images, masks);
+		cv::Mat img = data.imageRaw().clone();
+		compensator->apply(0, cv::Point(0,0), img, masks[0]);
+		data.setImageRaw(img);
+		img = data.rightRaw().clone();
+		compensator->apply(1, cv::Point(0,0), img, masks[1]);
+		data.setDepthOrRightRaw(img);
+		cv::detail::GainCompensator * gainCompensator = (cv::detail::GainCompensator*)compensator.get();
+		UDEBUG("gains = %f %f ", gainCompensator->gains()[0], gainCompensator->gains()[1]);
+		if(info) info->timeStereoExposureCompensation = timer.ticks();
+#endif
+	}
+
 	if(_stereoToDepth && !data.imageRaw().empty() && data.stereoCameraModel().isValidForProjection() && !data.rightRaw().empty())
 	{
 		UDEBUG("");
@@ -283,7 +312,8 @@ void CameraThread::postUpdate(SensorData * dataPtr, CameraInfo * info) const
 				data.stereoCameraModel().left().cx(),
 				data.stereoCameraModel().left().cy(),
 				data.stereoCameraModel().localTransform(),
-				-data.stereoCameraModel().baseline()*data.stereoCameraModel().left().fx());
+				-data.stereoCameraModel().baseline()*data.stereoCameraModel().left().fx(),
+				data.stereoCameraModel().left().imageSize());
 		data.setCameraModel(model);
 		data.setDepthOrRightRaw(depth);
 		data.setStereoCameraModel(StereoCameraModel());
@@ -295,7 +325,7 @@ void CameraThread::postUpdate(SensorData * dataPtr, CameraInfo * info) const
 		!data.depthRaw().empty())
 	{
 		UDEBUG("");
-		if(data.laserScanRaw().empty())
+		if(data.laserScanRaw().isEmpty())
 		{
 			UASSERT(_scanDecimation >= 1);
 			UTimer timer;
@@ -309,6 +339,7 @@ void CameraThread::postUpdate(SensorData * dataPtr, CameraInfo * info) const
 			float maxPoints = (data.depthRaw().rows/_scanDecimation)*(data.depthRaw().cols/_scanDecimation);
 			cv::Mat scan;
 			const Transform & baseToScan = data.cameraModels()[0].localTransform();
+			LaserScan::Format format = LaserScan::kXYZRGB;
 			if(validIndices->size())
 			{
 				if(_scanVoxelSize>0.0f)
@@ -333,6 +364,7 @@ void CameraThread::postUpdate(SensorData * dataPtr, CameraInfo * info) const
 						pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloudNormals(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 						pcl::concatenateFields(*cloud, *normals, *cloudNormals);
 						scan = util3d::laserScanFromPointCloud(*cloudNormals, baseToScan.inverse());
+						format = LaserScan::kXYZRGBNormal;
 					}
 					else
 					{
@@ -340,7 +372,7 @@ void CameraThread::postUpdate(SensorData * dataPtr, CameraInfo * info) const
 					}
 				}
 			}
-			data.setLaserScanRaw(scan, LaserScanInfo((int)maxPoints, _scanMaxDepth, baseToScan));
+			data.setLaserScanRaw(LaserScan(scan, (int)maxPoints, _scanMaxDepth, format, baseToScan));
 			if(info) info->timeScanFromDepth = timer.ticks();
 		}
 		else

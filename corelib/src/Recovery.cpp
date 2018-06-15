@@ -136,9 +136,10 @@ bool databaseRecovery(
 	Rtabmap rtabmap;
 	rtabmap.init(parameters, databasePath);
 
-	bool odometryIgnored = false;
-	Parameters::parse(parameters, Parameters::kRGBDEnabled(), odometryIgnored);
-	DBReader dbReader(backupPath, 0, !odometryIgnored);
+	bool rgbdEnabled = Parameters::defaultRGBDEnabled();
+	Parameters::parse(parameters, Parameters::kRGBDEnabled(), rgbdEnabled);
+	bool odometryIgnored = !rgbdEnabled;
+	DBReader dbReader(backupPath, 0, odometryIgnored);
 	dbReader.init();
 
 	CameraInfo info;
@@ -155,7 +156,12 @@ bool databaseRecovery(
 		}
 		else
 		{
-			if(!rtabmap.process(data, info.odomPose, info.odomCovariance))
+			if(!odometryIgnored && !info.odomCovariance.empty() && info.odomCovariance.at<double>(0,0)>=9999)
+			{
+				status = uFormat("High variance detected, triggering a new map...");
+				rtabmap.triggerNewMap();
+			}
+			if(!rtabmap.process(data, info.odomPose, info.odomCovariance, info.odomVelocity))
 			{
 				status = uFormat("Failed processing node %d.", data.id());
 			}
@@ -178,7 +184,7 @@ bool databaseRecovery(
 		{
 			rtabmap.close(false);
 			if(errorMsg)
-				*errorMsg = "Recovery canceled";
+				*errorMsg = uFormat("Recovery canceled, renaming back \"%s\" to \"%s\".", backupPath.c_str(), databasePath.c_str());
 
 			// put back the file as before
 			UFile::erase(databasePath);

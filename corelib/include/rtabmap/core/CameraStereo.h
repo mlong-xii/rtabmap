@@ -123,7 +123,7 @@ public:
 			bool computeOdometry = false,
 			float imageRate=0.0f,
 			const Transform & localTransform = Transform::getIdentity(),
-			bool selfCalibration = false);
+			bool selfCalibration = true);
 	CameraStereoZed(
 			const std::string & svoFilePath,
 			int quality = 1,    // 0=NONE, 1=PERFORMANCE, 2=QUALITY
@@ -132,7 +132,7 @@ public:
 			bool computeOdometry = false,
 			float imageRate=0.0f,
 			const Transform & localTransform = Transform::getIdentity(),
-			bool selfCalibration = false);
+			bool selfCalibration = true);
 	virtual ~CameraStereoZed();
 
 	virtual bool init(const std::string & calibrationFolder = ".", const std::string & cameraName = "");
@@ -188,6 +188,8 @@ public:
 	virtual bool isCalibrated() const;
 	virtual std::string getSerial() const;
 
+	virtual void setStartIndex(int index) {CameraImages::setStartIndex(index);camera2_->setStartIndex(index);} // negative means last
+
 protected:
 	virtual SensorData captureImage(CameraInfo * info = 0);
 
@@ -224,6 +226,12 @@ public:
 			bool rectifyImages = false,
 			float imageRate = 0.0f,
 			const Transform & localTransform = Transform::getIdentity());
+	CameraStereoVideo(
+			int deviceLeft,
+			int deviceRight,
+			bool rectifyImages = false,
+			float imageRate = 0.0f,
+			const Transform & localTransform = Transform::getIdentity());
 	virtual ~CameraStereoVideo();
 
 	virtual bool init(const std::string & calibrationFolder = ".", const std::string & cameraName = "");
@@ -243,6 +251,7 @@ private:
 	std::string cameraName_;
 	CameraVideo::Source src_;
 	int usbDevice_;
+	int usbDevice2_;
 };
 
 } // namespace rtabmap

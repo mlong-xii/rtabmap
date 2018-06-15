@@ -61,6 +61,7 @@ public:
 	bool isFeaturesShown() const;
 	bool isLinesShown() const;
 	int getAlpha() const {return _alpha;}
+	int getFeaturesSize() const {return _featuresSize;}
 	bool isGraphicsViewMode() const;
 	bool isGraphicsViewScaled() const;
 	const QColor & getDefaultBackgroundColor() const;
@@ -86,6 +87,7 @@ public:
 	void setFeatureColor(int id, QColor color);
 	void setFeaturesColor(QColor color);
 	void setAlpha(int alpha);
+	void setFeaturesSize(int size);
 	void setSceneRect(const QRectF & rect);
 
 	const QMultiMap<int, rtabmap::KeypointItem *> & getFeatures() const {return _features;}
@@ -96,7 +98,7 @@ public:
 
 	virtual QSize sizeHint() const;
 
-signals:
+Q_SIGNALS:
 	void configChanged();
 
 protected:
@@ -104,7 +106,7 @@ protected:
 	virtual void resizeEvent(QResizeEvent* event);
 	virtual void contextMenuEvent(QContextMenuEvent * e);
 
-private slots:
+private Q_SLOTS:
 	void sceneRectChanged(const QRectF &rect);
 
 private:
@@ -114,6 +116,7 @@ private:
 private:
 	QString _savedFileName;
 	int _alpha;
+	int _featuresSize;
 	QColor _defaultBgColor;
 
 	QMenu * _menu;
@@ -123,6 +126,7 @@ private:
 	QAction * _showLines;
 	QAction * _saveImage;
 	QAction * _setAlpha;
+	QAction * _setFeaturesSize;
 	QAction * _graphicsViewMode;
 	QAction * _graphicsViewScaled;
 

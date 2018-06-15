@@ -52,6 +52,7 @@ protected:
 			Transform guess,
 			RegistrationInfo & info) const;
 	virtual bool isScanRequiredImpl() const {return true;}
+	virtual bool canUseGuessImpl() const {return true;}
 	virtual float getMinGeometryCorrespondencesRatioImpl() const {return _correspondenceRatio;}
 
 private:
@@ -69,6 +70,8 @@ private:
 	float _pointToPlaneMinComplexity;
 	bool _libpointmatcher;
 	std::string _libpointmatcherConfig;
+	int _libpointmatcherKnn;
+	float _libpointmatcherEpsilon;
 	float _libpointmatcherOutlierRatio;
 	void * _libpointmatcherICP;
 };

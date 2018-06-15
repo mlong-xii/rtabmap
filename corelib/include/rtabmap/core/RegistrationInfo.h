@@ -35,6 +35,7 @@ class RegistrationInfo
 {
 public:
 	RegistrationInfo() :
+		totalTime(0.0),
 		inliers(0),
 		matches(0),
 		icpInliersRatio(0),
@@ -48,6 +49,7 @@ public:
 	RegistrationInfo copyWithoutData() const
 	{
 		RegistrationInfo output;
+		output.totalTime = totalTime;
 		output.covariance = covariance.clone();
 		output.rejectedMsg = rejectedMsg;
 		output.inliers = inliers;
@@ -61,12 +63,14 @@ public:
 
 	cv::Mat covariance;
 	std::string rejectedMsg;
+	double totalTime;
 
 	// RegistrationVis
 	int inliers;
 	std::vector<int> inliersIDs;
 	int matches;
 	std::vector<int> matchesIDs;
+	std::vector<int> projectedIDs; // "From" IDs
 
 	// RegistrationIcp
 	float icpInliersRatio;

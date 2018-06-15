@@ -31,6 +31,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "rtabmap/core/OdometryFovis.h"
 #include "rtabmap/core/OdometryViso2.h"
 #include "rtabmap/core/OdometryDVO.h"
+#include "rtabmap/core/OdometryOkvis.h"
 #include "rtabmap/core/OdometryORBSLAM2.h"
 #include "rtabmap/core/OdometryInfo.h"
 #include "rtabmap/core/util3d.h"
@@ -39,6 +40,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "rtabmap/utilite/ULogger.h"
 #include "rtabmap/utilite/UTimer.h"
 #include "rtabmap/utilite/UConversion.h"
+#include "rtabmap/utilite/UProcessInfo.h"
 #include "rtabmap/core/ParticleFilter.h"
 #include "rtabmap/core/util2d.h"
 
@@ -75,6 +77,9 @@ Odometry * Odometry::create(Odometry::Type & type, const ParametersMap & paramet
 	case Odometry::kTypeF2F:
 		odometry = new OdometryF2F(parameters);
 		break;
+	case Odometry::kTypeOkvis:
+		odometry = new OdometryOkvis(parameters);
+		break;
 	default:
 		odometry = new OdometryF2M(parameters);
 		type = Odometry::kTypeF2M;
@@ -99,6 +104,8 @@ Odometry::Odometry(const rtabmap::ParametersMap & parameters) :
 		_kalmanMeasurementNoise(Parameters::defaultOdomKalmanMeasurementNoise()),
 		_imageDecimation(Parameters::defaultOdomImageDecimation()),
 		_alignWithGround(Parameters::defaultOdomAlignWithGround()),
+		_publishRAMUsage(Parameters::defaultRtabmapPublishRAMUsage()),
+		_imagesAlreadyRectified(Parameters::defaultRtabmapImagesAlreadyRectified()),
 		_pose(Transform::getIdentity()),
 		_resetCurrentCount(0),
 		previousStamp_(0),
@@ -125,6 +132,9 @@ Odometry::Odometry(const rtabmap::ParametersMap & parameters) :
 	Parameters::parse(parameters, Parameters::kOdomKalmanMeasurementNoise(), _kalmanMeasurementNoise);
 	Parameters::parse(parameters, Parameters::kOdomImageDecimation(), _imageDecimation);
 	Parameters::parse(parameters, Parameters::kOdomAlignWithGround(), _alignWithGround);
+	Parameters::parse(parameters, Parameters::kRtabmapPublishRAMUsage(), _publishRAMUsage);
+	Parameters::parse(parameters, Parameters::kRtabmapImagesAlreadyRectified(), _imagesAlreadyRectified);
+
 	if(_imageDecimation == 0)
 	{
 		_imageDecimation = 1;
@@ -223,6 +233,13 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 {
 	UASSERT_MSG(data.id() >= 0, uFormat("Input data should have ID greater or equal than 0 (id=%d)!", data.id()).c_str());
 
+	if(!_imagesAlreadyRectified && !this->canProcessRawImages())
+	{
+		UERROR("Odometry approach chosen cannot process raw images (not rectified images). Make sure images "
+				"are rectified, and set %s parameter back to true.",
+				Parameters::kRtabmapImagesAlreadyRectified().c_str());
+	}
+
 	// Ground alignment
 	if(_pose.isIdentity() && _alignWithGround)
 	{
@@ -286,7 +303,8 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 		}
 	}
 
-	double dt = previousStamp_>0.0f?data.stamp() - previousStamp_:0.0;
+	// KITTI datasets start with stamp=0
+	double dt = previousStamp_>0.0f || (previousStamp_==0.0f && framesProcessed()==1)?data.stamp() - previousStamp_:0.0;
 	Transform guess = dt>0.0 && guessFromMotion_ && !previousVelocityTransform_.isNull()?Transform::getIdentity():Transform();
 	if(!(dt>0.0 || (dt == 0.0 && previousVelocityTransform_.isNull())))
 	{
@@ -332,7 +350,7 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 
 	UTimer time;
 	Transform t;
-	if(_imageDecimation > 1)
+	if(_imageDecimation > 1 && !data.imageRaw().empty())
 	{
 		// Decimation of images with calibrations
 		SensorData decimatedData = data;
@@ -397,6 +415,10 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 		info->stamp = data.stamp();
 		info->interval = dt;
 		info->transform = t;
+		if(_publishRAMUsage)
+		{
+			info->memoryUsage = UProcessInfo::getMemoryUsage()/(1024*1024);
+		}
 
 		if(!data.groundTruth().isNull())
 		{
@@ -528,7 +550,7 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 			}
 		}
 
-		if(data.stamp() == 0)
+		if(data.stamp() == 0 && framesProcessed_ != 0)
 		{
 			UWARN("Null stamp detected");
 		}

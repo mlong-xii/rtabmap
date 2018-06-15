@@ -48,6 +48,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace rtabmap {
 class CameraThread;
 class OdometryThread;
+class IMUThread;
 class CloudViewer;
 class LoopClosureViewer;
 class OccupancyGrid;
@@ -108,7 +109,7 @@ public:
 
 	bool isDatabaseUpdated() const { return _databaseUpdated; }
 
-public slots:
+public Q_SLOTS:
 	virtual void processStats(const rtabmap::Statistics & stat);
 	void updateCacheFromDatabase(const QString & path);
 	void openDatabase(const QString & path);
@@ -123,7 +124,7 @@ protected:
 	virtual void keyPressEvent(QKeyEvent *event);
 	virtual bool eventFilter(QObject *obj, QEvent *event);
 
-protected slots:
+protected Q_SLOTS:
 	virtual void changeState(MainWindow::State state);
 	virtual void newDatabase();
 	virtual void openDatabase();
@@ -143,7 +144,7 @@ protected slots:
 	virtual void triggerNewMap();
 	virtual void deleteMemory();
 
-protected slots:
+protected Q_SLOTS:
 	void beep();
 	void cancelProgress();
 	void configGUIModified();
@@ -171,6 +172,7 @@ protected slots:
 	void selectFreenect2();
 	void selectK4W2();
 	void selectRealSense();
+	void selectRealSense2();
 	void selectStereoDC1394();
 	void selectStereoFlyCapture2();
 	void selectStereoZed();
@@ -219,7 +221,7 @@ protected slots:
 	void updateNodeVisibility(int, bool);
 	void updateGraphView();
 
-signals:
+Q_SIGNALS:
 	void statsReceived(const rtabmap::Statistics &);
 	void statsProcessed();
 	void cameraInfoReceived(const rtabmap::CameraInfo &);
@@ -255,7 +257,7 @@ private:
 	std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::IndicesPtr> createAndAddCloudToMap(int nodeId,	const Transform & pose, int mapId);
 	void createAndAddScanToMap(int nodeId, const Transform & pose, int mapId);
 	void createAndAddFeaturesToMap(int nodeId, const Transform & pose, int mapId);
-	Transform alignPosesToGroundTruth(std::map<int, Transform> & poses, const std::map<int, Transform> & groundTruth, double stamp = 0.0, int refId = -1);
+	Transform alignPosesToGroundTruth(const std::map<int, Transform> & poses, const std::map<int, Transform> & groundTruth);
 	void drawKeypoints(const std::multimap<int, cv::KeyPoint> & refWords, const std::multimap<int, cv::KeyPoint> & loopWords);
 	void setupMainLayout(bool vertical);
 	void updateSelectSourceMenu();
@@ -276,7 +278,7 @@ protected:
 	const std::map<int, int> & currentMapIds() const { return _currentMapIds; }    // <nodeId, mapId>
 	const std::map<int, std::string> & currentLabels() const { return _currentLabels; }  // <nodeId, label>
 	const std::map<int, std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::IndicesPtr> > & cachedClouds() const { return _cachedClouds; }
-	const std::map<int, cv::Mat> & createdScans() const { return _createdScans; }
+	const std::map<int, LaserScan> & createdScans() const { return _createdScans; }
 	const std::map<int, pcl::PointCloud<pcl::PointXYZRGB>::Ptr> & createdFeatures() const { return _createdFeatures; }
 
 	const rtabmap::OccupancyGrid * occupancyGrid() const { return _occupancyGrid; }
@@ -298,6 +300,7 @@ private:
 	State _state;
 	rtabmap::CameraThread * _camera;
 	rtabmap::OdometryThread * _odomThread;
+	rtabmap::IMUThread * _imuThread;
 
 	//Dialogs
 	PreferencesDialog * _preferencesDialog;
@@ -337,7 +340,7 @@ private:
 	std::set<int> _cachedEmptyClouds;
 	std::pair<int, std::pair<std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr>, pcl::IndicesPtr> > _previousCloud; // used for subtraction
 
-	std::map<int, cv::Mat> _createdScans;
+	std::map<int, LaserScan> _createdScans;
 
 	rtabmap::OccupancyGrid * _occupancyGrid;
 	rtabmap::OctoMap * _octomap;

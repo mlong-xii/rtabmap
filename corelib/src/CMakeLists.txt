@@ -46,6 +46,7 @@ SET(SRC_FILES
 	Graph.cpp
 	Compression.cpp
 	Link.cpp
+	LaserScan.cpp
 	
 	Optimizer.cpp
 	OptimizerTORO.cpp
@@ -65,7 +66,10 @@ SET(SRC_FILES
 	OdometryFovis.cpp
 	OdometryViso2.cpp
 	OdometryDVO.cpp
+	OdometryOkvis.cpp
 	OdometryORBSLAM2.cpp
+	
+	IMUThread.cpp
 	
 	Stereo.cpp
 	StereoDense.cpp
@@ -92,9 +96,12 @@ IF(OpenCV_VERSION_MAJOR EQUAL 2)
 SET(SRC_FILES
     ${SRC_FILES}
     opencv/Orb.cpp
-    opencv/solvepnp.cpp
 )
 ENDIF(OpenCV_VERSION_MAJOR EQUAL 2)
+SET(SRC_FILES
+    ${SRC_FILES}
+    opencv/solvepnp.cpp
+)
 
 # to get includes in visual studio
 IF(MSVC)
@@ -178,6 +185,17 @@ IF(RealSense_FOUND)
 	)
 ENDIF(RealSense_FOUND)
 
+IF(realsense2_FOUND)
+	SET(INCLUDE_DIRS
+		${INCLUDE_DIRS}
+		${realsense2_INCLUDE_DIRS}
+	)
+	SET(LIBRARIES
+		${LIBRARIES}
+		realsense2
+	)
+ENDIF(realsense2_FOUND)
+
 IF(DC1394_FOUND)
 	SET(INCLUDE_DIRS
 		${INCLUDE_DIRS}
@@ -233,25 +251,6 @@ IF(G2O_FOUND)
 		)
 	ENDIF(WITH_VERTIGO)
 ENDIF(G2O_FOUND)
-
-IF(GTSAM_FOUND)
-	IF(GTSAM_INCLUDE_DIR)
-		SET(INCLUDE_DIRS 
-			${GTSAM_INCLUDE_DIR} # place it in front to use Eigen installed by GTSAM
-			${INCLUDE_DIRS} 
-		)
-	ELSE()
-		SET(INCLUDE_DIRS 
-			${GTSAM_INCLUDE_DIRS} # cmake standard
-			${INCLUDE_DIRS} 
-		)
-	ENDIF()
-	add_definitions("-DGTSAM_IMPORT_STATIC")
-	SET(LIBRARIES
-		${LIBRARIES}
-		gtsam
-	)
-ENDIF(GTSAM_FOUND)
 
 IF(cvsba_FOUND)
 	SET(INCLUDE_DIRS 
@@ -344,6 +343,23 @@ IF(dvo_core_FOUND)
 	)
 ENDIF(dvo_core_FOUND)
 
+IF(okvis_FOUND)
+    SET(INCLUDE_DIRS
+		${OKVIS_INCLUDE_DIRS}
+		${BRISK_INCLUDE_DIRS}
+		${OPENGV_INCLUDE_DIRS}
+		${CERES_INCLUDE_DIRS}
+		${INCLUDE_DIRS}
+	)
+	SET(LIBRARIES
+		${OKVIS_LIBRARIES}
+		${BRISK_LIBRARIES}
+		${OPENGV_LIBRARIES}
+		${CERES_LIBRARIES}
+		${LIBRARIES}
+	)
+ENDIF(okvis_FOUND)
+
 IF(ORB_SLAM2_FOUND)
     SET(INCLUDE_DIRS
         ${ORB_SLAM2_INCLUDE_DIRS} #before so that g2o includes are taken from ORB_SLAM2 directory before the official g2o one
@@ -354,6 +370,29 @@ IF(ORB_SLAM2_FOUND)
 		${LIBRARIES}
 	)
 ENDIF(ORB_SLAM2_FOUND)
+
+IF(GTSAM_FOUND)
+	# Make sure GTSAM is built with system Eigen, not the included one in its package
+	IF(GTSAM_INCLUDE_DIR)
+		SET(INCLUDE_DIRS 
+			${INCLUDE_DIRS} 
+			${GTSAM_INCLUDE_DIR} 
+		)
+	ELSE()
+		SET(INCLUDE_DIRS 
+			${INCLUDE_DIRS} 
+			${GTSAM_INCLUDE_DIRS}
+		)
+	ENDIF()
+	IF(WIN32)
+		# GTSAM should be built in STATIC on Windows to avoid "error C2338: THIS_METHOD_IS_ONLY_FOR_1x1_EXPRESSIONS" when building GTSAM
+		add_definitions("-DGTSAM_IMPORT_STATIC") 
+	ENDIF(WIN32)
+	SET(LIBRARIES
+		${LIBRARIES}
+		gtsam # Windows: Place static libs at the end
+	)
+ENDIF(GTSAM_FOUND)
 
 ####################################
 # Generate resources files
